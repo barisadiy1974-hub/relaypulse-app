@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RelayPulse — Trial Expired</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #0b0d10;
+      color: #e8e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card {
+      max-width: 440px;
+      text-align: center;
+      padding: 40px 36px;
+    }
+    .icon { width: 64px; height: 64px; margin: 0 auto 20px; display: block; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { font-size: 14px; line-height: 1.6; color: #a8adb8; margin: 0 0 8px; }
+    .days { color: #7c6af7; font-weight: 600; }
+    .buy {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 12px 28px;
+      background: #7c6af7;
+      color: #fff;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .contact { margin-top: 16px; font-size: 12px; color: #666; }
+    .license-box { margin-top: 28px; padding-top: 24px; border-top: 1px solid #22262f; text-align: left; }
+    .license-box label { display: block; font-size: 12px; color: #a8adb8; margin-bottom: 8px; text-align: center; }
+    .license-row { display: flex; gap: 8px; }
+    .license-row input {
+      flex: 1;
+      background: #12151b;
+      border: 1px solid #22262f;
+      border-radius: 8px;
+      color: #e8e8f0;
+      padding: 10px 12px;
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .license-row button {
+      background: #22262f;
+      border: 1px solid #22262f;
+      color: #e8e8f0;
+      border-radius: 8px;
+      padding: 10px 18px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .license-row button:hover { background: #2a2f3a; }
+    .license-msg { margin-top: 10px; font-size: 12px; text-align: center; min-height: 16px; }
+    .license-msg.err { color: #f87171; }
+    .license-msg.ok { color: #4caf50; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="icon" src="../assets/icon.png" alt="RelayPulse">
+    <h1>Your <span class="days">14-day trial</span> has ended</h1>
+    <p>Thanks for trying RelayPulse. Your evaluation period is over — purchase a license to keep monitoring your relays.</p>
+    <a class="buy" href="#" id="buyLink">Purchase a license</a>
+    <p class="contact">Questions? Email <a href="mailto:baris.adiy1974@gmail.com" style="color:#7c6af7">baris.adiy1974@gmail.com</a></p>
+    <div class="license-box">
+      <label>Already purchased? Enter your license key:</label>
+      <div class="license-row">
+        <input id="licenseInput" type="text" placeholder="RP1-xxxxxxxx-…" autocomplete="off" spellcheck="false">
+        <button id="activateBtn">Activate</button>
+      </div>
+      <div class="license-msg" id="licenseMsg"></div>
+    </div>
+  </div>
+  <script>
+    document.getElementById('buyLink').addEventListener('click', (e) => {
+      e.preventDefault();
+      window.api && window.api.openExternal && window.api.openExternal('https://buy.stripe.com/5kQcMXcLH3Z30ob24A0VO00');
+    });
+
+    const activateBtn = document.getElementById('activateBtn');
+    const licenseInput = document.getElementById('licenseInput');
+    const licenseMsg = document.getElementById('licenseMsg');
+
+    async function activate() {
+      const key = licenseInput.value.trim();
+      if (!key) return;
+      activateBtn.disabled = true;
+      activateBtn.textContent = 'Checking…';
+      licenseMsg.textContent = '';
+      licenseMsg.className = 'license-msg';
+      try {
+        const result = await window.api.activateLicense(key);
+        if (result && result.ok) {
+          licenseMsg.textContent = 'License activated — reloading…';
+          licenseMsg.className = 'license-msg ok';
+          setTimeout(() => { window.location.href = 'index.html'; }, 600);
+        } else {
+          licenseMsg.textContent = (result && result.error) || 'Invalid license key.';
+          licenseMsg.className = 'license-msg err';
+          activateBtn.disabled = false;
+          activateBtn.textContent = 'Activate';
+        }
+      } catch (e) {
+        licenseMsg.textContent = 'Could not check the key. Try again.';
+        licenseMsg.className = 'license-msg err';
+        activateBtn.disabled = false;
+        activateBtn.textContent = 'Activate';
+      }
+    }
+
+    activateBtn.addEventListener('click', activate);
+    licenseInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') activate(); });
+  </script>
+</body>
+</html>

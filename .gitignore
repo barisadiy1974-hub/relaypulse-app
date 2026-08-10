@@ -1,0 +1,9 @@
+node_modules/
+dist/
+
+# Never commit: mints license keys.
+tools/generate-license.js
+*.pem
+_LICENSE-PRIVATE-KEY/
+
+.DS_Store

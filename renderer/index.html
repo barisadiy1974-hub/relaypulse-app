@@ -1,0 +1,541 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RelayPulse</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="titlebar">
+    <div class="brand">
+      <img class="brand-icon" src="../assets/icon.png" alt="RelayPulse">
+      <span id="brandTitle">RelayPulse</span>
+      <span id="appVersionBadge" class="top-badge subtle">v—</span>
+    </div>
+    <div class="actions">
+      <span id="networkModeBadge" class="top-badge">Network: Anyone</span>
+      <span id="languageModeBadge" class="top-badge subtle">TR</span>
+      <span id="autoFixModeBadge" class="top-badge subtle">Auto-Fix: Off</span>
+      <span id="lastHourBadge" class="top-badge subtle">Last 1h: —</span>
+      <span id="tokenPriceBadge" class="top-badge">ANYONE $—</span>
+      <span id="agg" class="agg">—</span>
+      <button id="hideBtn" title="Hide">✕</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-brand-card">
+        <img class="sidebar-brand-icon" src="../assets/icon.png" alt="RelayPulse">
+        <div>
+          <div class="sidebar-brand-title" id="sidebarBrandTitle">RelayPulse</div>
+          <div class="sidebar-brand-version" id="sidebarVersionLabel">v—</div>
+        </div>
+      </div>
+      <nav class="tabs sidebar-tabs">
+        <button data-tab="dashboard" class="active"><span id="navDashboard">Röleler</span><span id="sidebarRelayCount" class="nav-count">0</span></button>
+        <button data-tab="news"><span id="navNews">Genel Bakış</span></button>
+        <button data-tab="rewards"><span id="navRewards">Cüzdanlar</span></button>
+        <button data-tab="anyon-dash"><span>Anyone Dashboard</span></button>
+        <button data-tab="nyx"><span>Nyx</span></button>
+        <button data-tab="htop"><span>Htop</span></button>
+        <button data-tab="config"><span id="navConfig">Araçlar</span></button>
+        <button data-tab="settings"><span id="navSettings">Ayarlar</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-health"><span class="health-dot"></span><span id="sidebarSystemStatus">Sistem: Çevrimiçi</span></div>
+        <button id="dashboardRefreshBtn" class="sidebar-refresh">Şimdi Yenile</button>
+      </div>
+    </aside>
+
+    <main class="content-main">
+    <!-- Dashboard tab -->
+    <section id="tab-dashboard" class="tab active">
+      <div class="relay-toolbar">
+        <div class="relay-toolbar-left">
+          <label class="relay-search">
+            <span>🔎</span>
+            <input id="relaySearch" type="text" placeholder="Röle ara...">
+          </label>
+          <select id="relayStateFilter">
+            <option value="all">Tümü</option>
+            <option value="online">Çevrimiçi</option>
+            <option value="stale">Uyarı</option>
+            <option value="offline">Çevrimdışı</option>
+          </select>
+          <select id="relayAnonFilter">
+            <option value="all">Anon: Tümü</option>
+            <option value="active">Anon: OK</option>
+            <option value="inactive">Anon: Down</option>
+          </select>
+        </div>
+        <div class="relay-toolbar-right">
+          <div class="summary-strip">
+            <div class="summary-item"><span>Toplam</span><b id="summaryTotal">—</b></div>
+            <div class="summary-item ok"><span id="summaryOnlineLabel">Çevrimiçi</span><b id="summaryOnline">—</b></div>
+            <div class="summary-item warn"><span id="summaryWarnLabel">Uyarı</span><b id="summaryWarn">—</b><div id="summaryWarnNames" class="summary-names"></div></div>
+            <div class="summary-item err"><span id="summaryOfflineLabel">Çevrimdışı</span><b id="summaryOffline">—</b><div id="summaryOfflineNames" class="summary-names"></div></div>
+            <div class="summary-item streak"><span>🔥 Streak</span><b id="summaryStreak">—</b><div id="summaryStreakNames" class="summary-names"></div></div>
+            <div class="summary-item levelup"><span>⚡ Leveling Up</span><b id="summaryLevelup">—</b><div id="summaryLevelupNames" class="summary-names"></div></div>
+          </div>
+          <button id="themeToggleBtn" class="theme-btn" title="Light / Dark">☀︎ / ☾</button>
+        </div>
+      </div>
+      <div id="dashboardAutoFixLastLog" class="ai-log-indicator empty">AI log: henuz yok</div>
+      <div class="ai-log-panel" aria-label="AI Auto-Fix log">
+        <div class="ai-log-panel-head">
+          <span>AI Auto-Fix</span>
+          <span id="aiLogPanelStatus">live log</span>
+        </div>
+        <pre id="dashboardAutoFixLog" class="ai-log-panel-body">AI log: none yet</pre>
+      </div>
+      <div class="relay-table-head">
+        <span id="headStatus">Durum</span>
+        <span id="headRelayName">Röle Adı</span>
+        <span id="headBand">Band (RX / TX)</span>
+        <span>CPU</span>
+        <span>RAM</span>
+        <span>Disk</span>
+        <span>Conn</span>
+        <span>Load</span>
+        <span>Hourly</span>
+        <span id="headFingerprint">Fingerprint</span>
+      </div>
+      <div id="cards" class="cards"></div>
+    </section>
+
+    <section id="tab-news" class="tab">
+      <div class="news-toolbar">
+        <div class="row">
+          <button id="newsRefresh" class="primary">Refresh News</button>
+          <button id="newsOpenX">Open X</button>
+          <button id="newsOpenTelegram">Open Telegram</button>
+        </div>
+        <span id="newsStatus" class="hint"></span>
+      </div>
+      <div id="newsFeed" class="news-feed"></div>
+    </section>
+
+
+
+
+
+    <!-- Rewards tab -->
+    <section id="tab-rewards" class="tab">
+      <div class="settings-cols rewards-cols">
+        <div>
+          <h3 id="rewardBindingTitle">Wallet Binding</h3>
+          <p class="hint">Paste your MetaMask address here. The app checks the <code>ContactInfo @anon: 0x...</code> line on the selected server and can update it remotely.</p>
+          <div class="logs-toolbar">
+            <label><span id="rewardServerLabel">Server</span>:
+              <select id="rewardServer"></select>
+            </label>
+            <label><span id="rewardWalletLabel">Wallet</span>:
+              <input id="rewardWallet" class="wallet-input" placeholder="0x... your MetaMask address">
+            </label>
+          </div>
+          <div class="row">
+            <button id="rewardAudit">Audit relay</button>
+            <button id="rewardFetch">Refresh rewards</button>
+            <button id="rewardBind" class="primary">Bind wallet</button>
+            <button id="rewardDashboard">Open Anyone Dashboard</button>
+          </div>
+          <pre id="rewardOut" class="logview small"></pre>
+          <div id="rewardSummary" class="reward-summary">
+            <div class="reward-status-row">
+              <span id="rewardClaimedBadge" class="reward-badge neutral">claimed: unknown</span>
+              <div class="reward-actions-inline">
+                <label class="chk"><input id="rewardAutoRefresh" type="checkbox"> Auto refresh</label>
+                <button id="rewardCopyFingerprint">Copy fingerprint</button>
+              </div>
+            </div>
+            <div id="rewardHint" class="reward-hint">Claim status and reward data appear here after the last refresh.</div>
+            <div id="rewardMismatch" class="reward-mismatch" hidden></div>
+            <canvas id="rewardTrend" class="reward-trend" width="640" height="72"></canvas>
+            <div class="reward-detail-table-wrap">
+              <table class="reward-detail-table">
+                <thead>
+                  <tr>
+                    <th id="rewardHeadRelay">Relay</th>
+                    <th id="rewardHeadWallet">Wallet</th>
+                    <th id="rewardHeadFingerprint">Fingerprint</th>
+                    <th id="rewardHeadRunning">Running</th>
+                    <th id="rewardHeadConsensus">Consensus</th>
+                    <th id="rewardHeadLatestReward">Latest Reward</th>
+                    <th id="rewardHeadRewardDate">Reward Date</th>
+                    <th id="rewardHeadClaim">Claim</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td id="rewardServerCell">—</td>
+                    <td id="rewardWalletBound">—</td>
+                    <td id="rewardFingerprint">—</td>
+                    <td id="rewardRunning">—</td>
+                    <td id="rewardConsensus">—</td>
+                    <td id="rewardAmount">—</td>
+                    <td id="rewardDate">—</td>
+                    <td id="rewardClaimCell">unknown</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <pre id="rewardApiOut" class="logview small"></pre>
+            <div class="fleet-box">
+              <div class="fleet-head">
+                <h3 id="fleetFingerprintsTitle">Fleet Fingerprints</h3>
+                <div class="row">
+                  <button id="fleetFingerprintRefresh">Refresh All</button>
+                  <button id="fleetFingerprintCopy" class="primary">Copy All</button>
+                  <button id="fleetMyFamilyCopy">Copy MyFamily</button>
+                  <button id="fleetMyFamilyPreview">Preview Family</button>
+                  <button id="fleetMyFamilyApply" class="danger">Apply Family All</button>
+                </div>
+              </div>
+              <p class="hint">Collects all registered relay fingerprints by name. The Preview/Apply flow leaves each relay's own fingerprint out to produce the correct <code>MyFamily</code> line.</p>
+              <div id="fleetFamilyStatus" class="fleet-status">Family status not checked yet.</div>
+              <pre id="fleetFingerprintOut" class="logview small">Not loaded yet.</pre>
+            </div>
+            <div class="fleet-box">
+              <div class="fleet-head">
+                <h3>🛡 Security / Hardening</h3>
+                <div class="row">
+                  <button id="secScanBtn" class="primary">Scan All</button>
+                  <button id="secHardenRiskyBtn" class="danger">Harden Risky Ones</button>
+                </div>
+              </div>
+              <p class="hint">Checks each relay's <b>fail2ban</b> status + banned IPs, SSH <b>password-auth</b>, <b>MaxStartups</b>, and port via SSH. "Harden" = install fail2ban + set MaxStartups/LoginGraceTime + (for key-based logins) disable password-auth. Only affects SSH/port 22; does not touch relay ports (9001/443/80). Protection against SSH-flood freezes.</p>
+              <div id="secStatus" class="fleet-status">Not scanned yet. Start with "Scan All".</div>
+              <div id="secTableWrap"></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3>What This Does</h3>
+          <p class="hint">Per Anyone docs, rewards require <code>ContactInfo @anon: WALLET</code> in the relay's <code>anonrc</code> file. This panel audits it via SSH and can write it remotely.</p>
+          <p class="hint">MetaMask isn't embedded in Electron for now. Safest flow: copy the address from MetaMask, paste it here, then write it to the relay with <b>Bind wallet</b>.</p>
+          <p class="hint">Wallet claim/lock/reward actions are still done via the official dashboard: <code>dashboard.anyone.io</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Nyx tab -->
+    <section id="tab-nyx" class="tab">
+      <div class="logs-toolbar">
+        <label>Server:
+          <select id="nyxServer"></select>
+        </label>
+        <button id="nyxOpen" class="primary">Open Nyx in Terminal</button>
+        <span id="nyxStatus" class="hint" style="margin-left:12px"></span>
+      </div>
+      <p class="hint" style="padding: 12px 16px; max-width: 780px">
+        <b>Nyx</b> = a curses-based full-screen monitor for the anon relay (bandwidth, connections, circuits, config, logs).
+        Clicking the button opens a new <b>Terminal</b> window and runs
+        <code>ssh -tt &lt;server&gt; nyx -s /run/anon/control</code> on the selected server.
+        In the terminal: <code>m</code> = menu, <code>l</code> = logs, <code>c</code> = circuits, <code>←/→</code> = pages, <code>q</code> = quit.
+        <br><br>
+        <b>Requirement:</b> <code>nyx</code> must be installed on the server (<code>apt install nyx</code>) and the <code>/run/anon/control</code> socket must be reachable (the anon service must be running).
+        For password-auth servers, <code>sshpass</code> must be installed locally (<code>brew install hudochenkov/sshpass/sshpass</code>).
+      </p>
+    </section>
+
+    <!-- Htop tab -->
+    <section id="tab-htop" class="tab">
+      <div class="logs-toolbar">
+        <label>Server:
+          <select id="htopServer"></select>
+        </label>
+        <button id="htopOpen" class="primary">Open htop in Terminal</button>
+        <span id="htopStatus" class="hint" style="margin-left:12px"></span>
+      </div>
+      <p class="hint" style="padding: 12px 16px; max-width: 780px">
+        <b>htop</b> = interactive process/CPU/RAM viewer. Clicking the button opens a new <b>Terminal</b> window and runs
+        <code>ssh -tt &lt;server&gt; htop</code> on the selected server.
+        In the terminal: <code>F5</code> = tree view, <code>F6</code> = sort column, <code>F9</code> = kill, <code>q</code> = quit.
+        <br><br>
+        <b>Requirement:</b> <code>htop</code> must be installed on the server (<code>apt install htop -y</code>). Falls back to <code>top</code> automatically if not installed.
+        For password-auth servers, <code>sshpass</code> must be installed locally.
+      </p>
+    </section>
+
+    <!-- Anyone Dashboard tab -->
+    <section id="tab-anyon-dash" class="tab">
+      <!-- Nav toolbar -->
+      <div class="anyon-dash-toolbar">
+        <button id="anyonDashBack" title="Back">◀</button>
+        <button id="anyonDashForward" title="Forward">▶</button>
+        <button id="anyonDashReload" title="Reload">↺</button>
+        <span id="anyonDashUrl" class="hint" style="flex:1;margin:0 8px;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0.6"></span>
+        <button id="anyonDashOpenChrome">🌐 Open in Chrome</button>
+      </div>
+      <!-- Fleet summary bar -->
+      <div id="anyonSummaryBar" style="display:flex;align-items:center;gap:20px;padding:6px 14px;background:#0d1017;border-bottom:1px solid #2a2d35;font-size:12px;flex-shrink:0">
+        <span style="color:#888">Fleet:</span>
+        <span><span style="color:#888">Online </span><span id="adSumOnline" style="color:#4caf50;font-weight:600">—</span></span>
+        <span style="color:#333">|</span>
+        <span><span style="color:#888">Hourly est. </span><span id="adSumHourly" style="color:#f0c040;font-weight:600">—</span></span>
+        <span><span style="color:#888">Daily est. </span><span id="adSumDaily" style="color:#f0c040;font-weight:600">—</span></span>
+        <span><span style="color:#888">Monthly est. </span><span id="adSumMonthly" style="color:#f0c040;font-weight:600">—</span></span>
+        <span style="color:#333;margin-left:auto;font-size:10px;opacity:0.4">relay-api dependent</span>
+      </div>
+      <!-- Embedded dashboard -->
+      <webview id="anyonDashWebview"
+        partition="persist:anyondash"
+        style="width:100%;flex:1;border:none;min-height:0"
+        allowpopups></webview>
+    </section>
+
+    <!-- Config (anonrc editor) tab -->
+    <section id="tab-config" class="tab">
+      <div class="logs-toolbar">
+        <label>Server:
+          <select id="configServer"></select>
+        </label>
+        <button id="configLoad">Load anonrc</button>
+        <button id="configSave" class="primary">Save + Restart</button>
+        <button id="configSaveNoRestart">Save only</button>
+        <button id="configApplyPreset">Apply bandwidth preset</button>
+        <button id="configApplyAll" class="danger">Apply preset to ALL</button>
+        <button id="configApplyExitPorts" class="primary">Add Exit Policy Ports (except baris1)</button>
+        <button id="configFirewallExitPorts">Open Firewall + Test (except baris1)</button>
+        <button id="configWhitelistOne">Whitelist my IP (this)</button>
+        <button id="configWhitelistAll" class="primary">Whitelist my IP (ALL)</button>
+        <span id="configStatus" class="hint" style="margin-left:12px"></span>
+      </div>
+      <p class="hint" style="padding: 6px 16px; max-width: 920px">
+        Reads/writes the selected server's <code>/etc/anon/anonrc</code> file over SSH.
+        <b>Save + Restart</b> runs <code>anon --verify-config</code> after writing; on error it restores from <code>.bak</code> and does not restart the service.
+        <b>Apply bandwidth preset</b> adds the <code>BandwidthRate 10 MBytes / Burst 15 MBytes / AccountingMax 4 TBytes / month 1 00:00</code> block to the selected server and restarts it.
+        <b>Apply preset to ALL</b> applies the same setting to all servers (careful: cannot be undone).
+      </p>
+      <div id="rewardHistPanel" class="reward-hist-panel">
+        <div class="rh-head">
+          <span class="rh-title">📈 Fleet Income Trend</span>
+          <span id="rewardHistSummary" class="rh-sum">—</span>
+        </div>
+        <div class="rh-stats">
+          <div class="rh-stat">
+            <span class="rh-stat-label">Hourly (measured)</span>
+            <b id="rhHourly" class="rh-stat-val">—</b>
+            <span id="rhHourlySub" class="rh-stat-sub"></span>
+          </div>
+          <div class="rh-stat">
+            <span class="rh-stat-label">Daily (actual)</span>
+            <b id="rhDaily" class="rh-stat-val">—</b>
+            <span id="rhDailySub" class="rh-stat-sub"></span>
+          </div>
+        </div>
+        <canvas id="rewardHistCanvas" width="1100" height="90"></canvas>
+        <p class="hint" style="margin:4px 0 0">
+          Both are measured from the <b>real on-chain Σ difference</b> (not a projection). <b>Hourly</b> = difference between consecutive Σ samples (~one sample per hour), <b>Daily</b> = day-over-day increase of Σ — matches the dashboard exactly. Hourly fills in ~1 hour, daily on day 2. Chart = actual daily earnings over recent days.
+        </p>
+      </div>
+
+      <div id="lowEarnPanel" class="low-earn-panel">
+        <div class="low-earn-head">
+          <span class="low-earn-title">⚠ Low-Earning Relays</span>
+          <span id="lowEarnSummary" class="low-earn-sum">—</span>
+          <button id="lowEarnRefresh" class="low-earn-refresh">↻ Refresh</button>
+        </div>
+        <p class="hint" style="margin:2px 0 8px">
+          Relays whose bandwidth is normal and uptime is mature (≥3 days) but whose daily reward is 40%+ below the fleet median. The drop isn't from bandwidth → likely an uptime-streak/consensus issue. (Only relays with real on-chain data are compared.)
+        </p>
+        <div id="lowEarnList" class="low-earn-list"></div>
+      </div>
+
+      <div style="padding: 0 16px 12px">
+        <div class="config-meta" style="font-size:12px; color:#7f8b99; margin-bottom:6px">
+          Path: <code id="configPath">—</code>
+          <span style="margin-left:16px">Lines: <b id="configLines">0</b></span>
+        </div>
+        <textarea id="configEditor" spellcheck="false" style="
+          width: 100%;
+          height: calc(100vh - 280px);
+          min-height: 320px;
+          background: #0d1117;
+          color: #d1d5da;
+          border: 1px solid #30363d;
+          border-radius: 6px;
+          padding: 10px 12px;
+          font-family: ui-monospace, Menlo, Consolas, monospace;
+          font-size: 12px;
+          line-height: 1.45;
+          resize: vertical;
+        " placeholder="Use Load anonrc to fetch the file, edit here, write with Save."></textarea>
+        <pre id="configOut" class="logview small" style="margin-top:8px"></pre>
+      </div>
+    </section>
+
+    <!-- Settings tab -->
+    <section id="tab-settings" class="tab">
+      <div class="settings-subtabs">
+        <button class="settings-subtab active" data-pane="pane-servers">Servers</button>
+        <button class="settings-subtab" data-pane="pane-general" id="subtabGeneral">Ayarlar</button>
+      </div>
+
+      <div id="pane-servers" class="settings-pane">
+          <p class="hint" style="margin-bottom:8px">Two ways: (1) key-based connection via <code>sshAlias</code> in <code>~/.ssh/config</code> — leave host/user/port/key blank. (2) Filling in <b>Password</b> connects directly with IP + root password (requires sshpass). If Password is filled in, the key-based path is not used.</p>
+          <div class="servers-table-wrap">
+          <table id="serversTable">
+            <thead>
+              <tr><th>Name</th><th>SSH alias</th><th>User</th><th>Host</th><th>Port</th><th>Key</th><th>Password</th><th>Wallet</th><th>Agent</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          </div>
+          <div class="row">
+            <button id="addServer">+ Add server</button>
+            <button id="saveServers" class="primary">Save</button>
+            <button id="installAgentAll">HTTPS Agent All</button>
+          </div>
+      </div>
+
+      <div id="pane-general" class="settings-pane" style="display:none">
+        <div style="max-width:480px">
+          <h3>License</h3>
+          <div id="licenseStatusRow" style="margin-bottom:10px"></div>
+          <div class="row" id="licenseEntryRow">
+            <input id="licenseKeyInput" type="text" placeholder="RP1-xxxxxxxx-…" autocomplete="off" spellcheck="false">
+            <button id="activateLicenseBtn" class="primary">Activate</button>
+          </div>
+          <div id="licenseMsg" class="hint" style="margin-top:6px"></div>
+
+          <h3 id="settingsDefaultsTitle">Defaults</h3>
+          <label><span id="languageModeLabel">Language</span>
+            <select id="languageMode">
+              <option value="tr">Türkçe</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <label>Default network
+            <select id="defaultNetworkMode">
+              <option value="direct">Direct</option>
+            </select>
+          </label>
+          <p class="hint">Stored as the default preference. Shown in the top bar and used as the base mode for new features.</p>
+
+          <h3 id="settingsZoomTitle" style="margin-top:24px">Görünüm / Zoom</h3>
+          <div class="row" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <button id="zoomOut" style="font-size:16px;padding:2px 12px">−</button>
+            <span id="zoomLabel" style="min-width:42px;text-align:center;font-weight:600">100%</span>
+            <button id="zoomIn" style="font-size:16px;padding:2px 12px">+</button>
+            <button id="zoomReset" style="padding:2px 10px;font-size:12px">Sıfırla</button>
+          </div>
+
+          <h3 style="margin-top:24px">Connection Mode</h3>
+          <label>Connection type on this device
+            <select id="connectionMode">
+              <option value="https">HTTPS Agent (fast, requires token)</option>
+              <option value="ssh">SSH (no token required, recommended for MacBook)</option>
+            </select>
+          </label>
+          <p class="hint">HTTPS: used if an agent is installed on the server. SSH: works safely on any device, no token issues. Once saved, all relays connect using this mode.</p>
+
+          <h3 id="settingsPollingTitle">Polling</h3>
+          <label>Interval (ms) <input id="pollMs" type="number" min="120000" step="10000" value="120000"></label>
+          <label>Default log lines <input id="cfgLogLines" type="number" min="50" step="50" value="200"></label>
+
+          <h3 id="settingsTilesTitle" style="margin-top:24px">Dashboard Items</h3>
+          <p class="hint">The colored tiles shown under each relay card. Pick the visual style, and use the checkboxes to choose which ones appear.</p>
+          <label>Style variant
+            <select id="tileStyle">
+              <option value="vivid">1 — Vivid (gradient + brightness)</option>
+              <option value="neon">2 — Neon (bright border, dark fill)</option>
+              <option value="pastel">3 — Pastel (soft tone)</option>
+              <option value="flat">4 — Flat (single color, low contrast)</option>
+              <option value="glass">5 — Glass (semi-transparent + blur)</option>
+              <option value="alien">6 — Alien (biomechanical, acid green)</option>
+              <option value="predator">7 — Predator (thermal HUD, red)</option>
+              <option value="aurora">8 — Aurora (vivid shifting gradient)</option>
+            </select>
+          </label>
+          <label class="chk"><input id="tileUptime" type="checkbox" checked> Uptime</label>
+          <label class="chk"><input id="tilePubip" type="checkbox" checked> Public IP</label>
+          <label class="chk"><input id="tileAnon" type="checkbox" checked> Anon Service</label>
+          <label class="chk"><input id="tileNic" type="checkbox" checked> Network Interface</label>
+          <label class="chk"><input id="tileLoad" type="checkbox" checked> Load 5/15m</label>
+
+          <h3 id="settingsAlarmTitle" style="margin-top:24px">Alarm</h3>
+          <label class="chk"><input id="alarmEnabled" type="checkbox"> Offline alarm active</label>
+          <label>Alarm sound
+            <select id="alarmSound">
+              <option value="Basso">Basso</option>
+              <option value="Blow">Blow</option>
+              <option value="Bell">Bell</option>
+              <option value="Bird">Bird</option>
+              <option value="Clean">Clean</option>
+              <option value="Funk">Funk</option>
+              <option value="Hero">Hero</option>
+              <option value="Submarine">Submarine</option>
+            </select>
+          </label>
+          <label>Repeat (minutes)
+            <input id="alarmRepeatMinutes" type="number" min="1" max="60" step="1" value="5">
+          </label>
+          <label>Low RAM warning threshold (usage %)
+            <input id="ramWarnPct" type="number" min="70" max="99" step="1" value="90">
+          </label>
+          <p class="hint">A sound alert plays when a relay goes offline. If it stays offline, it reminds you again at the chosen interval. If a relay's RAM usage crosses the threshold (available is low), a "Low RAM" warning + notification appears on the card — a heads-up before the box freezes.</p>
+          <div class="row">
+            <button id="testAlarmBtn">Test alarm</button>
+            <button id="saveSettings" class="primary">Save settings</button>
+          </div>
+
+          <h3 id="settingsTestTitle" style="margin-top:24px">Test connection</h3>
+          <select id="testSel"></select>
+          <button id="testBtn">Run test</button>
+          <pre id="testOut" class="logview small"></pre>
+
+          <h3 id="settingsAiTitle" style="margin-top:24px">AI Auto-Fix</h3>
+          <label class="chk"><input id="autoFixEnabled" type="checkbox"> <span id="autoFixEnabledLabel">Auto-Fix aktif</span></label>
+          <label class="chk"><input id="autoFixDryRun" type="checkbox"> <span id="autoFixDryRunLabel">Dry-run modu</span></label>
+          <label>AI Provider
+            <select id="aiProvider" style="margin-left:8px">
+              <option value="openai">OpenAI (gpt-4o-mini)</option>
+              <option value="claude">Claude (claude-haiku-4-5)</option>
+            </select>
+          </label>
+          <label id="openaiKeyLabel">OpenAI API Key
+            <div class="row">
+              <input id="openaiApiKey" type="password" placeholder="sk-..." autocomplete="off">
+              <button id="openaiApiKeyToggle" type="button">Show</button>
+              <button id="openaiApiKeyCopy" type="button">Copy</button>
+              <button id="openaiApiKeyClear" type="button">Clear</button>
+            </div>
+          </label>
+          <label id="claudeKeyLabel">Claude API Key
+            <div class="row">
+              <input id="claudeApiKey" type="password" placeholder="sk-ant-..." autocomplete="off">
+              <button id="claudeApiKeyToggle" type="button">Show</button>
+              <button id="claudeApiKeyCopy" type="button">Copy</button>
+              <button id="claudeApiKeyClear" type="button">Clear</button>
+            </div>
+          </label>
+          <p class="hint">The API key is stored separately in an encrypted vault on disk. It stays hidden by default; you can reveal and copy it.</p>
+
+          <h4 id="autoFixCmdsTitle" style="margin-top:14px;margin-bottom:6px">Komutlar (düzenlenebilir)</h4>
+          <table id="autoFixCmdsTable" style="width:100%;font-size:12px">
+            <thead><tr><th style="width:36px">ID</th><th style="width:140px">Name</th><th>Command</th><th style="width:28px"></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="row" style="margin-top:6px">
+            <button id="addAutoFixCmd">+ Komut Ekle</button>
+            <button id="saveAutoFix" class="primary">Kaydet</button>
+            <button id="testAutoFixBtn">Test AI</button>
+          </div>
+          <div id="autoFixTestOut" class="hint" style="margin-top:8px"></div>
+          <pre id="autoFixLog" class="logview small" style="margin-top:8px;max-height:120px"></pre>
+
+          <h3 style="margin-top:24px">About</h3>
+          <p class="hint">Each tick runs a single SSH command per server (<code>/proc/net/dev</code>, <code>ss</code>, <code>/proc/stat</code>, <code>/proc/meminfo</code>, <code>df</code>, <code>systemctl is-active anon</code>). Rates are computed by diffing byte counters between ticks. Logs come from <code>journalctl -u anon</code> or <code>/var/log/anon/*</code>.</p>
+          <button id="quitBtn" class="danger">Quit app</button>
+        </div>
+      </div>
+      </div><!-- end pane-general -->
+    </section><!-- end tab-settings -->
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
