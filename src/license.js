@@ -19,14 +19,15 @@ const publicKey = crypto.createPublicKey({
   type: 'spki'
 });
 
+// Matched as a whole rather than split on '-': base64url uses '-' as a data
+// character, so the signature itself usually contains one.
+const KEY_RE = /^RP1-([0-9a-fA-F]{8})-([A-Za-z0-9_-]{86})$/i;
+
 function verifyLicenseKey(key) {
   const cleaned = String(key || '').trim().replace(/\s+/g, '');
-  const parts = cleaned.split('-');
-  if (parts.length !== 3) return false;
-  const [prefix, serial, signature] = parts;
-  if (prefix.toUpperCase() !== 'RP1') return false;
-  if (!/^[0-9a-fA-F]{8}$/.test(serial)) return false;
-  if (!/^[A-Za-z0-9_-]{86}$/.test(signature)) return false;
+  const match = KEY_RE.exec(cleaned);
+  if (!match) return false;
+  const [, serial, signature] = match;
   try {
     return crypto.verify(
       null,
