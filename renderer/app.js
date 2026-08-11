@@ -34,7 +34,7 @@ const I18N = {
     nav_settings: 'Ayarlar',
     system_online: 'Sistem: Çevrimiçi',
     refresh_now: 'Şimdi Yenile',
-    open_config: 'Yapılandırma Dosyası',
+    open_config: 'Config Dosyası',
     search_placeholder: 'Röle ara...',
     filter_all: 'Tümü',
     filter_online: 'Çevrimiçi',
@@ -336,7 +336,7 @@ function applyLanguage(lang) {
   setText('#navSettings', t('nav_settings'));
   setText('#sidebarSystemStatus', t('system_online'));
   setText('#dashboardRefreshBtn', t('refresh_now'));
-  setText('#openConfigBtn', t('open_config'));
+  setText('#navOpenConfig', t('open_config'));
   const relaySearch = $('#relaySearch');
   if (relaySearch) relaySearch.placeholder = t('search_placeholder');
   const stateSel = $('#relayStateFilter');
@@ -641,6 +641,7 @@ document.addEventListener('keydown', (e) => {
 let _prevTab = null;
 $$('.tabs button').forEach(btn => btn.addEventListener('click', () => {
   const nextTab = btn.dataset.tab;
+  if (!nextTab) return; // action buttons in the nav (e.g. Config Dosyasi) are not tabs
   // Webview RAM yönetimi: anyon-dash'tan çıkınca about:blank'e git (process'i koru ama sayfayı boşalt)
   if (_prevTab === 'anyon-dash' && nextTab !== 'anyon-dash') {
     const wv = document.getElementById('anyonDashWebview');
