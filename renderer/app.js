@@ -34,7 +34,7 @@ const I18N = {
     nav_settings: 'Ayarlar',
     system_online: 'Sistem: Çevrimiçi',
     refresh_now: 'Şimdi Yenile',
-    open_config: 'Config Dosyası',
+    open_config: 'Relay Config',
     search_placeholder: 'Röle ara...',
     filter_all: 'Tümü',
     filter_online: 'Çevrimiçi',
@@ -122,7 +122,7 @@ const I18N = {
     nav_settings: 'Settings',
     system_online: 'System: Online',
     refresh_now: 'Refresh Now',
-    open_config: 'Config File',
+    open_config: 'Relay Config',
     search_placeholder: 'Search relays...',
     filter_all: 'All',
     filter_online: 'Online',
@@ -598,7 +598,11 @@ function bindDashboardControls() {
     await Promise.allSettled([refreshNetworkStats(), refreshFleetHealthRewards()]);
   });
   const openConfigBtn = $('#openConfigBtn');
-  if (openConfigBtn) openConfigBtn.addEventListener('click', () => window.api.revealConfigFile());
+  if (openConfigBtn) openConfigBtn.addEventListener('click', () => {
+    openTab('config');
+    const anchor = $('#configServer');
+    if (anchor) anchor.scrollIntoView({ block: 'center' });
+  });
 }
 
 // --- right-click paste/copy on inputs ---

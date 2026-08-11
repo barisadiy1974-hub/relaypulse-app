@@ -2553,10 +2553,6 @@ ipcMain.handle('license:status', async () => {
   const cfg = config.load();
   return { licensed: !!cfg.licensed, firstLaunchAt: cfg.firstLaunchAt || 0 };
 });
-ipcMain.handle('config:reveal', async () => {
-  shell.showItemInFolder(config.path);
-  return { ok: true };
-});
 ipcMain.handle('external:open', async (_e, url) => {
   const safe = String(url || '').trim();
   if (!/^https?:\/\//i.test(safe)) return { ok: false, error: 'gecersiz url' };
