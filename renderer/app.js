@@ -34,6 +34,7 @@ const I18N = {
     nav_settings: 'Ayarlar',
     system_online: 'Sistem: Çevrimiçi',
     refresh_now: 'Şimdi Yenile',
+    open_config: 'Yapılandırma Dosyası',
     search_placeholder: 'Röle ara...',
     filter_all: 'Tümü',
     filter_online: 'Çevrimiçi',
@@ -121,6 +122,7 @@ const I18N = {
     nav_settings: 'Settings',
     system_online: 'System: Online',
     refresh_now: 'Refresh Now',
+    open_config: 'Config File',
     search_placeholder: 'Search relays...',
     filter_all: 'All',
     filter_online: 'Online',
@@ -334,6 +336,7 @@ function applyLanguage(lang) {
   setText('#navSettings', t('nav_settings'));
   setText('#sidebarSystemStatus', t('system_online'));
   setText('#dashboardRefreshBtn', t('refresh_now'));
+  setText('#openConfigBtn', t('open_config'));
   const relaySearch = $('#relaySearch');
   if (relaySearch) relaySearch.placeholder = t('search_placeholder');
   const stateSel = $('#relayStateFilter');
@@ -594,6 +597,8 @@ function bindDashboardControls() {
     flushDeferredUiUpdates();
     await Promise.allSettled([refreshNetworkStats(), refreshFleetHealthRewards()]);
   });
+  const openConfigBtn = $('#openConfigBtn');
+  if (openConfigBtn) openConfigBtn.addEventListener('click', () => window.api.revealConfigFile());
 }
 
 // --- right-click paste/copy on inputs ---

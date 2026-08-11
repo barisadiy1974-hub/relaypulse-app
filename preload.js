@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
   fetchAnyoneTokenPrice: () => ipcRenderer.invoke('market:tokenPrice'),
   testAlarm: () => ipcRenderer.invoke('alarm:test'),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
+  revealConfigFile: () => ipcRenderer.invoke('config:reveal'),
   activateLicense: (key) => ipcRenderer.invoke('license:activate', key),
   getLicenseStatus: () => ipcRenderer.invoke('license:status'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
