@@ -836,9 +836,15 @@ class Monitor extends EventEmitter {
     const MAX_TOTAL_SPREAD_MS = 30000;
     const spread = Math.max(200, Math.min(Math.floor(MAX_TOTAL_SPREAD_MS / Math.max(this.servers.length || 1, 1)), 2000));
     const initialDelay = index * spread;
-    const startupId = setTimeout(tick, initialDelay);
-    const intervalId = setInterval(tick, this.pollMs);
-    this.timers.set(server.name, { intervalId, startupId });
+    // Interval'i ilk tick'ten SONRA kur. Aksi halde setInterval hemen kurulduğu
+    // için tüm relaylar aynı anda ateşler (initialDelay sadece ilk tick'i kaydırır)
+    // ve her pollMs'te 143 eşzamanlı SSH açılır → MaxStartups/timeout uyarıları.
+    const entry = { intervalId: null, startupId: null };
+    entry.startupId = setTimeout(() => {
+      entry.intervalId = setInterval(tick, this.pollMs);
+      tick();
+    }, initialDelay);
+    this.timers.set(server.name, entry);
   }
   async _poll(server) {
     const t0 = Date.now();

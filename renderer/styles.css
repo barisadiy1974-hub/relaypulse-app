@@ -1236,6 +1236,8 @@ code { background: var(--panel-2); border: 1px solid var(--border); padding: 1px
   gap: 18px !important;
   align-items: stretch !important;
 }
+/* Filtre gizlemesi: .cockpit-card display:flex !important oldugu icin satir ici stil yetmez. */
+.card.cockpit-card.filtered-out { display: none !important; }
 .card.cockpit-card {
   position: relative !important;
   display: flex !important;

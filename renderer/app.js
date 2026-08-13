@@ -425,7 +425,7 @@ function applyDashboardFilters() {
     const matchesQuery = !query || name.includes(query);
     const matchesState = stateFilter === 'all' || state === stateFilter;
     const matchesAnon = anonFilter === 'all' || anon === anonFilter;
-    card.style.display = (matchesQuery && matchesState && matchesAnon) ? '' : 'none';
+    card.classList.toggle('filtered-out', !(matchesQuery && matchesState && matchesAnon));
   }
 }
 

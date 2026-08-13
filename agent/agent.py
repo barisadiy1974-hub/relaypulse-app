@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Anyone Relay Monitor - lightweight metrics agent.
+"""RelayPulse - lightweight metrics agent.
 Usage: AGENT_TOKEN=xxx AGENT_PORT=19191 python3 agent.py
 """
 import http.server, json, os, re, ssl, subprocess, threading, time
