@@ -1,5 +1,5 @@
 // AI-powered auto-fix: analyzes relay failures and runs the appropriate fix command.
-// Supports OpenAI (gpt-4o-mini) and Claude (claude-sonnet-4-5) providers.
+// Supports OpenAI (gpt-4o-mini) and Claude (claude-sonnet-5) providers.
 
 async function callOpenAI(apiKey, userPrompt) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -31,7 +31,7 @@ async function callClaude(apiKey, userPrompt) {
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-5',
+      model: 'claude-sonnet-5',
       max_tokens: 500,
       messages: [{ role: 'user', content: userPrompt }],
     }),
@@ -65,6 +65,21 @@ function pickFallbackCommand(errorMsg, autoFixCommands) {
   return null;
 }
 
+// Runs the regex-picked fallback command. Returns null if no command matches.
+async function runFallback({ errorMsg, autoFixCommands, server, runCommandFn, reason }) {
+  const cmd = pickFallbackCommand(errorMsg, autoFixCommands);
+  if (!cmd) return null;
+  const runResult = await runCommandFn(server.name, cmd.command);
+  return {
+    ok: runResult.ok,
+    action: 'ran',
+    commandName: cmd.name,
+    output: runResult.output || '',
+    reason: `${reason} (${cmd.name}).`,
+    error: runResult.ok ? undefined : runResult.error,
+  };
+}
+
 // Main entry point. Returns { ok, action, commandName?, output?, reason, error? }
 // action is 'ran' | 'none' | undefined (on error)
 async function analyzeAndFix({ server, errorMsg, recentLogs, cfg, runCommandFn }) {
@@ -72,11 +87,18 @@ async function analyzeAndFix({ server, errorMsg, recentLogs, cfg, runCommandFn }
   const useClaude = aiProvider === 'claude' || (!openaiApiKey && claudeApiKey);
   const apiKey = useClaude ? (claudeApiKey || cfg.aiApiKey) : (openaiApiKey || cfg.aiApiKey || claudeApiKey);
 
-  if (!apiKey || !apiKey.trim()) {
-    return { ok: false, error: 'API key eksik. Ayarlar > AI Auto-Fix kismina API key girin.' };
-  }
   if (!autoFixCommands.length) {
     return { ok: false, error: 'Komut listesi bos. Ayarlar > AI Auto-Fix kismina komut ekleyin.' };
+  }
+  // API key yoksa auto-fix'i tamamen iptal etme — hata tipine gore regex fallback
+  // komutunu calistir. Aksi halde key girilene kadar auto-fix hic devreye girmiyor.
+  if (!apiKey || !apiKey.trim()) {
+    const fb = await runFallback({
+      errorMsg, autoFixCommands, server, runCommandFn,
+      reason: 'API key girilmemis; hata tipine gore fallback komutu secildi',
+    });
+    if (fb) return fb;
+    return { ok: false, error: 'API key eksik ve hata tipine uyan fallback komut yok. Ayarlar > AI Auto-Fix kismina API key girin.' };
   }
 
   const commandList = autoFixCommands
@@ -139,17 +161,12 @@ Yanit formati (SADECE JSON, baska hicbir sey yazma):
   try {
     responseText = useClaude ? await callClaude(apiKey, prompt) : await callOpenAI(apiKey, prompt);
   } catch (e) {
-    const fallbackCmd = pickFallbackCommand(errorMsg, autoFixCommands);
-    if (!fallbackCmd) return { ok: false, error: 'AI API hatasi: ' + e.message };
-    const runResult = await runCommandFn(server.name, fallbackCmd.command);
-    return {
-      ok: runResult.ok,
-      action: 'ran',
-      commandName: fallbackCmd.name,
-      output: runResult.output || '',
-      reason: `AI API kullanilamadi; hata tipine gore fallback komutu secildi (${fallbackCmd.name}).`,
-      error: runResult.ok ? undefined : runResult.error,
-    };
+    const fb = await runFallback({
+      errorMsg, autoFixCommands, server, runCommandFn,
+      reason: 'AI API kullanilamadi; hata tipine gore fallback komutu secildi',
+    });
+    if (fb) return fb;
+    return { ok: false, error: 'AI API hatasi: ' + e.message };
   }
 
   let parsed;
@@ -158,17 +175,12 @@ Yanit formati (SADECE JSON, baska hicbir sey yazma):
     if (!jsonMatch) throw new Error('JSON bulunamadi');
     parsed = JSON.parse(jsonMatch[0]);
   } catch {
-    const fallbackCmd = pickFallbackCommand(errorMsg, autoFixCommands);
-    if (!fallbackCmd) return { ok: false, error: 'AI gecersiz yanit verdi: ' + responseText.slice(0, 150) };
-    const runResult = await runCommandFn(server.name, fallbackCmd.command);
-    return {
-      ok: runResult.ok,
-      action: 'ran',
-      commandName: fallbackCmd.name,
-      output: runResult.output || '',
-      reason: `AI gecersiz yanit verdi; hata tipine gore fallback komutu secildi (${fallbackCmd.name}).`,
-      error: runResult.ok ? undefined : runResult.error,
-    };
+    const fb = await runFallback({
+      errorMsg, autoFixCommands, server, runCommandFn,
+      reason: 'AI gecersiz yanit verdi; hata tipine gore fallback komutu secildi',
+    });
+    if (fb) return fb;
+    return { ok: false, error: 'AI gecersiz yanit verdi: ' + responseText.slice(0, 150) };
   }
 
   if (!parsed.commandId) {
