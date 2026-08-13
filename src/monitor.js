@@ -721,6 +721,10 @@ class Monitor extends EventEmitter {
     // Flap dampening: how many consecutive failures before we flip the card
     // from "stale" (last known data, yellow) to "offline" (red).
     this.OFFLINE_AFTER = 2;
+    // Offline hostlarda ust uste SSH denemesi fail2ban/sshd rate-limit tetikliyor.
+    // Offline olan host icin bir sonraki poll'u ileri atarak deneme sayisini dusur.
+    this._backoffUntil = new Map(); // name -> ts
+    this.MAX_BACKOFF_MULT = 5;      // pollMs * 5 tavan (120s poll -> en fazla 10 dk)
     // Debug log: append poll failures to a file so we can share it with support.
     this.debugLogPath = opts.debugLogPath || null;
     if (this.debugLogPath) {
@@ -824,6 +828,9 @@ class Monitor extends EventEmitter {
       // This prevents buildup when a host is down (10s timeout with a 3s interval
       // would otherwise spawn 3+ overlapping ssh processes — exhausting NAT/fd).
       if (this.inflight && this.inflight.get(server.name)) return;
+      // Offline host: backoff suresi dolmadan tekrar deneme (ban riskini dusurur).
+      const until = this._backoffUntil.get(server.name);
+      if (until && Date.now() < until) return;
       if (!this.inflight) this.inflight = new Map();
       this.inflight.set(server.name, true);
       this._poll(server)
@@ -915,7 +922,11 @@ class Monitor extends EventEmitter {
         } catch (firstErr) {
           const msg = (firstErr && firstErr.message) || '';
           const transient = isTransientSshError(msg);
-          if (!transient) throw firstErr;
+          // Host zaten offline ise anlik ikinci deneme yapma: gecici bir blip
+          // olmadigi belli, ve 500ms arayla ikinci baglanti fail2ban'in maxretry
+          // penceresini besleyen asil davranis.
+          const alreadyOffline = ((this.state.get(server.name) || {}).fails || 0) >= this.OFFLINE_AFTER;
+          if (!transient || alreadyOffline) throw firstErr;
           await new Promise(r => setTimeout(r, 500));
           try {
             stdout = await runSsh(server, REMOTE_SCRIPT, sshTimeout);
@@ -962,6 +973,7 @@ class Monitor extends EventEmitter {
       }
       // Reset fail counter on success, record lastOk.
       this.state.set(server.name, { ...prev, net, t: t0, cpu, lastOkTs: t0, fails: 0 });
+      this._backoffUntil.delete(server.name);
       // Update log cache with current warn lines + anon state (used by AI auto-fix as fallback).
       if (warnLines.length) {
         this._logCache.set(server.name, { ts: t0, lines: warnLines, anonState: anon, source: 'poll-warns' });
@@ -992,6 +1004,13 @@ class Monitor extends EventEmitter {
       // that it's "stale" (yellow) — keep the last good numbers visible so
       // the user doesn't see flapping for transient network blips.
       const state = fails >= this.OFFLINE_AFTER ? 'offline' : 'stale';
+      // Offline oldugu andan itibaren poll araligini kademeli buyut: 1x, 2x, 4x,
+      // tavan MAX_BACKOFF_MULT. Boylece erisilemeyen hosta saatte onlarca degil
+      // birkac SSH denemesi gider — fail2ban/sshd rate-limit tetiklenmez.
+      if (fails >= this.OFFLINE_AFTER) {
+        const mult = Math.min(2 ** (fails - this.OFFLINE_AFTER), this.MAX_BACKOFF_MULT);
+        this._backoffUntil.set(server.name, t0 + this.pollMs * mult);
+      }
       this._logDebug(`${server.name} FAIL (${fails}x, ${state}): ${errMsg.replace(/\n/g, ' | ').slice(0, 300)}`);
       // On the first failure (stale) fetch and cache logs while SSH may still be reachable.
       // By the time the relay flips to offline (2nd failure), AI auto-fix has recent logs.

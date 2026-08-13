@@ -1470,6 +1470,12 @@ function classifyAutoFixability(errorMsg) {
   if (/SSH reddedildi|Connection refused|No route to host|Network is unreachable|Operation timed out|timed out/i.test(msg)) {
     return { autoFixable: false, reason: 'SSH baglantisi kurulamiyor; sunucuya erismeden auto-fix komutu calistirilamaz.' };
   }
+  // TCP acik ama sshd banner gondermeden baglantiyi kapatiyor: sunucu ayakta
+  // (ping/RST var) fakat sshd fork edemiyor (RAM dolu/OOM) ya da ban var.
+  // Uzaktan komut calistirilamaz — saglayici panelinden reboot gerekir.
+  if (/kex_exchange_identification|ssh_exchange_identification|SSH oturumu uzak tarafca kapatildi|Connection reset by|reset by peer|Connection closed by/i.test(msg)) {
+    return { autoFixable: false, reason: 'Sunucu TCP seviyesinde ayakta ama sshd yanit vermiyor (RAM dolu/OOM veya ban olabilir). Uzaktan komut calistirilamaz — saglayici panelinden reboot gerekiyor.' };
+  }
   return { autoFixable: true, reason: '' };
 }
 
