@@ -1,6 +1,6 @@
 {
   "name": "relaypulse",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Anyone relay/exit node SSH monitor",
   "homepage": "https://barisadiy1974-hub.github.io/relaypulse/",
   "main": "main.js",
