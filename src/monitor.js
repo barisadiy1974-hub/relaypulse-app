@@ -846,6 +846,23 @@ class Monitor extends EventEmitter {
     }, initialDelay);
     this.timers.set(server.name, entry);
   }
+  // "Network is unreachable" / "No route to host" bu makinedeki ssh istemcisinden
+  // gelir — yani rota yoksa (Wi-Fi düştü, arayüz kapandı) TÜM relaylar aynı dalgada
+  // hata verir ve bütün kartlar sarıya döner. Bu relaylar hakkında yanlış alarmdır.
+  // (2026-08-16 13:44:09'da tek bir kopma 143 relayin hepsinde eşzamanlı "stale"
+  //  üretti — debug.log'daki sarı uyarıların %74'ü o tek olaydan.)
+  // Dışarıya istek atmadan tespit: makinede dahili olmayan bir adres kaldı mı?
+  // Adres varsa bastırma YAPILMAZ, yani gerçek rota sorunları normal işlenir.
+  _hasLocalNetwork() {
+    const ifaces = os.networkInterfaces();
+    for (const list of Object.values(ifaces)) {
+      for (const addr of list || []) {
+        if (!addr.internal && addr.address) return true;
+      }
+    }
+    return false;
+  }
+
   async _poll(server) {
     const t0 = Date.now();
     try {
@@ -991,6 +1008,12 @@ class Monitor extends EventEmitter {
       this.emit('snapshot', snap);
     } catch (err) {
       const errMsg = err && err.message ? err.message : String(err);
+      // Hata bu makinenin ağsız kalmasından geliyorsa relay'i suçlama: sayacı
+      // artırma, kartı sarıya çevirme. Ağ dönünce hiçbir şey olmamış gibi devam eder.
+      if (/No route to host|Network is unreachable/i.test(errMsg) && !this._hasLocalNetwork()) {
+        this._logDebug(`${server.name} atlandi — bu makinede ag baglantisi yok; relay hatasi sayilmadi`);
+        return;
+      }
       const prev = this.state.get(server.name) || {};
       const fails = (prev.fails || 0) + 1;
       this.state.set(server.name, { ...prev, fails });
