@@ -1467,7 +1467,14 @@ function classifyAutoFixability(errorMsg) {
   if (/Kimlik dogrulama basarisiz|Permission denied|Host key uyusmazligi/i.test(msg)) {
     return { autoFixable: false, reason: 'SSH kimlik bilgisi veya host key sorunu var; uzaktan komut calistirilemez.' };
   }
-  if (/SSH reddedildi|Connection refused|No route to host|Network is unreachable|Operation timed out|timed out/i.test(msg)) {
+  // Bağlantı kurulamadan kopan durumlar da auto-fix'e KAPALI olmalı: komut
+  // çalıştırılacak bir oturum yok. Türkçe formatlanmış mesajlar da eşleşmeli —
+  // classifyAutoFixability'ye monitor.js'in ürettiği metin geliyor, ham ssh çıktısı değil.
+  // (2026-08-21: "Connection reset" kalıbı eksik olduğu için erişilemeyen 3 kutuya
+  //  saatlerce OpenAI isteği atıldı ve ulaşılamayan makinede komut denendi.)
+  if (/SSH reddedildi|Connection refused|No route to host|Network is unreachable|Operation timed out|timed out/i.test(msg)
+      || /Connection reset|reset by peer|Connection closed by|Broken pipe|kex_exchange_identification|banner exchange/i.test(msg)
+      || /oturumu uzak tarafca kapatildi|baglantisi koptu|Ag erisimi yok/i.test(msg)) {
     return { autoFixable: false, reason: 'SSH baglantisi kurulamiyor; sunucuya erismeden auto-fix komutu calistirilamaz.' };
   }
   return { autoFixable: true, reason: '' };
