@@ -32,6 +32,14 @@ const Config = require('./src/config');
 const { verifyLicenseKey } = require('./src/license');
 const AiFixer = require('./src/ai-fixer');
 
+// Lisans durumu config'deki `licensed` BAYRAGINDAN DEGIL, saklanan anahtarin
+// Ed25519 imzasindan turetilir. Bayrak duz JSON dosyasinda duruyor; ona guvenmek
+// `"licensed": true` satirini elle yazmayi gecerli bir lisans haline getiriyordu.
+// Anahtar imzasi ozel anahtar olmadan uretilemez (bkz. src/license.js).
+function isLicensed(cfg) {
+  return verifyLicenseKey(cfg && cfg.licenseKey);
+}
+
 if (process.platform === 'linux') {
   app.disableHardwareAcceleration();
 }
@@ -1616,7 +1624,7 @@ function createWindow() {
   });
   const trialCfg = config.load();
   const TRIAL_DAYS = 14;
-  const trialExpired = !trialCfg.licensed && trialCfg.firstLaunchAt && (Date.now() - trialCfg.firstLaunchAt) > TRIAL_DAYS * 24 * 60 * 60 * 1000;
+  const trialExpired = !isLicensed(trialCfg) && trialCfg.firstLaunchAt && (Date.now() - trialCfg.firstLaunchAt) > TRIAL_DAYS * 24 * 60 * 60 * 1000;
   win.loadFile(path.join(__dirname, 'renderer', trialExpired ? 'trial-expired.html' : 'index.html'));
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('window-visibility', { visible: win.isVisible() });
@@ -2558,7 +2566,7 @@ ipcMain.handle('license:activate', async (_e, key) => {
 });
 ipcMain.handle('license:status', async () => {
   const cfg = config.load();
-  return { licensed: !!cfg.licensed, firstLaunchAt: cfg.firstLaunchAt || 0 };
+  return { licensed: isLicensed(cfg), firstLaunchAt: cfg.firstLaunchAt || 0 };
 });
 ipcMain.handle('external:open', async (_e, url) => {
   const safe = String(url || '').trim();
@@ -2968,6 +2976,7 @@ function openRemoteTerminal(server, remoteCmd, tag) {
   const sshOpts = '-tt -o ConnectTimeout=8 -o ServerAliveInterval=10 -o StrictHostKeyChecking=accept-new';
 
   let sh;
+  let pwFile = '';
   // Key takes priority: if a key file is set, always use publickey auth.
   // Vault may contain stale passwords from an earlier password-auth setup, but
   // servers that now require publickey would reject sshpass attempts.
@@ -2975,7 +2984,18 @@ function openRemoteTerminal(server, remoteCmd, tag) {
     const user = s.user || 'root';
     const host = s.host || s.sshAlias || s.name;
     target = `${user}@${host}`;
-    sh = `SSHPASS=${shq(s.password)} sshpass -e ssh ${sshOpts} -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no ${port}${shq(target)} ${shq(remoteCmd)}`;
+    // Parola script metnine GOMULMEZ. Gomulseydi macOS'ta /tmp'deki script
+    // dosyasinda, Linux'ta ise `bash -c ...` argumaninda (yani `ps` ciktisinda,
+    // makinedeki her kullaniciya acik) duz metin olarak gorunurdu.
+    // Bunun yerine 0600 izinli ayri bir dosyaya yazilip `sshpass -f` ile okutulur;
+    // dosya asagidaki EXIT trap'i ile silinir.
+    pwFile = path.join(require('os').tmpdir(), `relay-pw-${require('crypto').randomBytes(9).toString('hex')}`);
+    try {
+      fs.writeFileSync(pwFile, String(s.password) + '\n', { mode: 0o600 });
+    } catch (e) {
+      return Promise.resolve({ ok: false, error: 'Parola dosyasi yazilamadi: ' + e.message });
+    }
+    sh = `sshpass -f ${shq(pwFile)} ssh ${sshOpts} -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no ${port}${shq(target)} ${shq(remoteCmd)}`;
   } else {
     if (s.user && s.host) target = `${s.user}@${s.host}`;
     else if (s.host) target = s.host;
@@ -2991,8 +3011,13 @@ function openRemoteTerminal(server, remoteCmd, tag) {
   // The script self-deletes on exit. This also fixes 'read -n1 -s' on macOS zsh.
   const full = [
     '#!/bin/bash',
-    `trap 'rm -f "$0"' EXIT`,
-    `echo '>> ${tag} baglaniyor: ${s.name}'`,
+    // Parola dosyasi da temizlenir; kullanici pencereyi kapatsa bile calisir.
+    // Yol degiskene alinir: shq() ciktisini trap'in tek tirnaklari icine gommek
+    // tirnaklari ic ice sokar ve yolda bosluk varsa script bozulur.
+    `PWF=${pwFile ? shq(pwFile) : "''"}`,
+    `trap 'rm -f "$PWF" "$0"' EXIT`,
+    // shq: relay adinda tek tirnak varsa script bozulmasin.
+    `echo >&2 ${shq('>> ' + tag + ' baglaniyor: ' + s.name)}`,
     'echo',
     sh,
     'rc=$?',
