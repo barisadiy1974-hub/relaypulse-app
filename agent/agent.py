@@ -123,6 +123,9 @@ def _loop():
         time.sleep(8)
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    # Sessiz istemci (port tarayicilari) agent'i sonsuza kadar kilitlemesin.
+    timeout = 10
+
     def do_GET(self):
         if TOKEN and self.headers.get('X-Agent-Token', '') != TOKEN:
             self.send_response(403); self.end_headers(); return
@@ -136,6 +139,37 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *a): pass
 
+# Kac saniye sonra yarim kalmis bir baglanti birakilir.
+HANDSHAKE_TIMEOUT = 10
+
+class Server(http.server.ThreadingHTTPServer):
+    # request_queue_size 5 (varsayilan) kilitlenmede tasip baglanti dusuruyordu.
+    request_queue_size = 64
+    daemon_threads = True
+    ctx = None
+
+    def get_request(self):
+        # Duz accept. TLS el sikismasi BURADA yapilmiyor, ve bu kasitli.
+        # Onceden dinleyen soket ssl ile sariliyordu; oyle olunca el sikismasi
+        # accept() icinde, tek olan kabul is parcaciginda calisir. Baglanip el
+        # sikismasini hic bitirmeyen tek bir istemci sunucuyu herkese kapatir.
+        # Olculdu 2026-09-07: iki relay tam bu halde dort gun kaldi. systemd
+        # servisi "active" gosteriyor, port dinliyor, tek bir ESTAB baglanti
+        # duruyor, ve kendi localhost'undan bile cevap gelmiyordu.
+        sock, addr = self.socket.accept()
+        sock.settimeout(HANDSHAKE_TIMEOUT)
+        return sock, addr
+
+    def finish_request(self, request, client_address):
+        # El sikismasi artik isci is parcaciginda: yavas bir istemci sadece
+        # kendi is parcacigina mal olur, kabul dongusu donmeye devam eder.
+        if self.ctx is not None:
+            try:
+                request = self.ctx.wrap_socket(request, server_side=True)
+            except OSError:
+                return
+        self.RequestHandlerClass(request, client_address, self)
+
 if __name__ == '__main__':
     threading.Thread(target=_loop, daemon=True).start()
     try:
@@ -143,9 +177,9 @@ if __name__ == '__main__':
         with _lock: _data.update(d)
     except Exception:
         pass
-    httpd = http.server.HTTPServer(('0.0.0.0', PORT), Handler)
+    httpd = Server(('0.0.0.0', PORT), Handler)
     if SCHEME == 'https' and os.path.exists(CERT) and os.path.exists(KEY):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile=CERT, keyfile=KEY)
-        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+        httpd.ctx = ctx
     httpd.serve_forever()
