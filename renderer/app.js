@@ -3299,8 +3299,9 @@ if (configApplyAllBtn) configApplyAllBtn.addEventListener('click', () => applyPr
 
 const configFirewallExitPortsBtn = $('#configFirewallExitPorts');
 if (configFirewallExitPortsBtn) configFirewallExitPortsBtn.addEventListener('click', async () => {
-  const EXCLUDE = ['baris1'];
-  if (!confirm(`Firewall outbound ports will be opened and connection-tested on ALL servers (except ${EXCLUDE.join(', ')}).\n\nPorts: 110, 143, 993, 995, 8080, 8443, 5222, 9418, 6697\n\nContinue?`)) return;
+  const EXCLUDE = [];
+  const excludedLabel = EXCLUDE.length ? EXCLUDE.join(', ') : 'none';
+  if (!confirm(`Firewall outbound ports will be opened and connection-tested on ALL servers (except ${excludedLabel}).\n\nPorts: 110, 143, 993, 995, 8080, 8443, 5222, 9418, 6697\n\nContinue?`)) return;
   setConfigStatus('Opening and testing firewall ports…');
   if (configOut) configOut.textContent = '';
   const r = await window.api.firewallApplyExitPorts(EXCLUDE);
@@ -3317,8 +3318,9 @@ if (configFirewallExitPortsBtn) configFirewallExitPortsBtn.addEventListener('cli
 
 const configApplyExitPortsBtn = $('#configApplyExitPorts');
 if (configApplyExitPortsBtn) configApplyExitPortsBtn.addEventListener('click', async () => {
-  const EXCLUDE = ['baris1'];
-  if (!confirm(`New exit policy ports will be added and restarted on ALL servers (except ${EXCLUDE.join(', ')}).\n\nAdded: 110, 143, 993, 995, 8080, 8443, 5222, 9418, 6697\n\nContinue?`)) return;
+  const EXCLUDE = [];
+  const excludedLabel = EXCLUDE.length ? EXCLUDE.join(', ') : 'none';
+  if (!confirm(`New exit policy ports will be added and restarted on ALL servers (except ${excludedLabel}).\n\nAdded: 110, 143, 993, 995, 8080, 8443, 5222, 9418, 6697\n\nContinue?`)) return;
   setConfigStatus('Applying exit policy ports…');
   if (configOut) configOut.textContent = '';
   const r = await window.api.applyExitPorts(EXCLUDE);
@@ -3627,7 +3629,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;'
 function escAttr(s) { return escapeHtml(s); }
 function cssEscape(s) { return String(s).replace(/"/g, '\\"'); }
 
-/* BARIS PERF FIX: disabled experimental DOM-scanning hotfix blocks.
+/* Disabled experimental DOM-scanning hotfix blocks.
    They installed multiple MutationObservers and short intervals that scanned every node,
    which made the dashboard stutter with many relay cards. */
 

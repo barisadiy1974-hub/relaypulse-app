@@ -1379,7 +1379,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); padding: 1px
   .service-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* === BARIS FIX: clean 4-column relay dashboard === */
+/* === Clean 4-column relay dashboard === */
 @media (min-width: 1380px) {
   .cards.cockpit-grid, #cards.cockpit-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
@@ -1596,7 +1596,7 @@ code { background: var(--panel-2); border: 1px solid var(--border); padding: 1px
   min-width: 0 !important;
 }
 
-/* === BARIS PERF FIX: smoother relay list scrolling === */
+/* === Smoother relay list scrolling === */
 .cards.cockpit-grid,
 #cards.cockpit-grid {
   contain: layout style paint !important;

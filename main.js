@@ -2686,7 +2686,7 @@ ipcMain.handle('anonrc:applyPreset', async (_e, name) => {
 });
 
 // Add extra exit policy ports to anonrc, inserting them before the final reject *:*
-// Skips servers listed in the exclude array (e.g. ['baris1']).
+// Skips servers listed in the exclude array.
 function applyExitPolicyPorts(content) {
   const NEW_PORTS = [
     'ExitPolicy accept *:110',
