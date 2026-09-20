@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RelayPulse</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #0b0d10;
+      color: #e8e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .card { max-width: 460px; text-align: center; padding: 40px 36px; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { font-size: 14px; line-height: 1.6; color: #a8adb8; margin: 0 0 8px; }
+    ul {
+      list-style: none; padding: 0; margin: 22px 0 0;
+      text-align: left; display: inline-block;
+    }
+    li { font-size: 13px; color: #a8adb8; line-height: 1.9; }
+    li::before { content: "✓"; color: #7c6af7; font-weight: 700; margin-right: 10px; }
+    .price { margin-top: 26px; font-size: 26px; font-weight: 700; color: #e8e8f0; }
+    .price small { display: block; font-size: 12px; font-weight: 400; color: #666; margin-top: 4px; }
+    button {
+      font-family: inherit;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .buy {
+      display: block; width: 100%;
+      margin-top: 20px; padding: 13px 28px;
+      background: #7c6af7; color: #fff;
+      border: none; font-size: 14px;
+    }
+    .buy:disabled { opacity: .5; cursor: default; }
+    .restore {
+      margin-top: 12px; padding: 9px 18px;
+      background: transparent; color: #a8adb8;
+      border: 1px solid #22262f; font-size: 12px;
+    }
+    .hint { margin-top: 20px; font-size: 12px; line-height: 1.55; color: #6f7787; }
+    .msg { margin-top: 18px; font-size: 12px; min-height: 16px; }
+    .msg.err { color: #f87171; }
+    .msg.ok { color: #6ee7a8; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Unlock RelayPulse</h1>
+    <p>RelayPulse is free for up to 3 relays. Unlock it once to monitor your whole fleet.</p>
+    <ul>
+      <li><b>Unlimited relays</b> instead of 3</li>
+      <li>Alerts the moment a node really goes down</li>
+      <li>Auto-Fix repairs outages on its own</li>
+      <li>Built-in terminal and remote config editing</li>
+      <li>One purchase covers <b>Mac and iPhone</b></li>
+      <li>One-time purchase. No subscription, no account.</li>
+    </ul>
+    <div class="price" id="price">—</div>
+    <button class="buy" id="buyBtn" disabled>Loading…</button>
+    <p class="hint">Already bought RelayPulse on your iPhone? Tap Restore Purchase &mdash; sign in with the same Apple ID and it unlocks here too.</p>
+    <button class="restore" id="restoreBtn">Restore Purchase</button>
+    <button class="restore" id="laterBtn">Continue with 3 relays</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <script>
+    const buyBtn = document.getElementById('buyBtn');
+    const restoreBtn = document.getElementById('restoreBtn');
+    const priceEl = document.getElementById('price');
+    const msgEl = document.getElementById('msg');
+
+    function say(text, kind) {
+      msgEl.textContent = text || '';
+      msgEl.className = 'msg' + (kind ? ' ' + kind : '');
+    }
+
+    // The unlock itself is applied by the main process when StoreKit reports the
+    // transaction; it reloads this window into the app. Polling only covers the
+    // case where that reload is missed.
+    async function refresh() {
+      const r = await window.api.getIapStatus();
+      if (!r || !r.ok) { say((r && r.error) || 'Could not reach the App Store.', 'err'); return; }
+      if (r.purchased) { clearPending(); window.location.href = 'index.html'; return; }
+      if (r.product && r.product.ok) {
+        priceEl.innerHTML = r.product.price + '<small>one-time purchase</small>';
+        // Leave the button alone while a purchase is in flight, or the poll
+        // would undo the disabled state the click just set.
+        if (!pendingTimer) {
+          buyBtn.textContent = 'Buy RelayPulse';
+          buyBtn.disabled = false;
+        }
+      } else {
+        priceEl.textContent = '—';
+        buyBtn.textContent = 'Unavailable';
+        say((r.product && r.product.error) || 'Product unavailable.', 'err');
+      }
+    }
+
+    // StoreKit hands the payment sheet to the system and tells us nothing more.
+    // If the sheet never appears, or the buyer dismisses it, no transaction
+    // arrives and the screen would otherwise sit on "complete the purchase"
+    // forever, which reads as a hang. Give up after a while and let them retry.
+    let pendingTimer = null;
+    let pollTimer = null;
+    function clearPending() {
+      if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; }
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    // Only runs while a purchase or restore is in flight. A permanent timer
+    // would keep asking the App Store for the price every three seconds for as
+    // long as this window stays open.
+    //
+    // The wait is generous on purpose: the App Store's own purchase sheet can
+    // take well over a minute to appear (measured at ~90s against the sandbox),
+    // and giving up first told the buyer the purchase had failed while it was
+    // still perfectly alive. Re-enable the button when the wait ends, but say
+    // it may still be coming rather than claiming it failed.
+    function waitForUnlock(timeoutText) {
+      clearPending();
+      pollTimer = setInterval(refresh, 3000);
+      pendingTimer = setTimeout(() => {
+        pendingTimer = null;
+        clearInterval(pollTimer);
+        pollTimer = null;
+        buyBtn.disabled = false;
+        say(timeoutText, 'err');
+      }, 240000);
+    }
+
+    buyBtn.addEventListener('click', async () => {
+      buyBtn.disabled = true;
+      clearPending();
+      say('Contacting the App Store…');
+      const r = await window.api.purchaseIap();
+      if (!r || !r.ok) { say((r && r.error) || 'Purchase failed.', 'err'); buyBtn.disabled = false; return; }
+      say('Waiting for the App Store — its purchase dialog can take a minute to appear.');
+      waitForUnlock('Still no answer from the App Store. Its dialog may yet appear \u{2014} if it does, just finish the purchase. Otherwise try again, or tap Restore Purchase if you already own RelayPulse.');
+    });
+
+    restoreBtn.addEventListener('click', async () => {
+      clearPending();
+      buyBtn.disabled = false;
+      say('Restoring…');
+      const r = await window.api.restoreIap();
+      if (!r || !r.ok) { say((r && r.error) || 'Restore failed.', 'err'); return; }
+      say('Checking your purchases…', 'ok');
+      waitForUnlock('Nothing to restore on this Apple ID. If you bought RelayPulse on your iPhone, sign in with that same Apple ID.');
+    });
+
+    document.getElementById('laterBtn').addEventListener('click', () => {
+      window.location.href = 'index.html';
+    });
+
+    refresh();
+  </script>
+</body>
+</html>

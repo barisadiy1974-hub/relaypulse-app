@@ -1,0 +1,57 @@
+# Windows + Linux paketleri. macOS yok: Mac kullanicilari App Store surumunu alir.
+#
+# Her mimari kendi runner'inda derlenir. Sebep: ssh2 opsiyonel native eklenti
+# (sshcrypto.node, cpufeatures.node) tasiyor; x64 runner'da --arm64 derlersem
+# arm64 paketin icine x64 .node gomulur.
+name: Desktop packages
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: --linux --x64
+          - os: ubuntu-24.04-arm
+            target: --linux --arm64
+          - os: windows-latest
+            target: --win --x64
+          - os: windows-11-arm
+            target: --win --arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx electron-builder --config electron-builder-desktop.yml ${{ matrix.target }} --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.os }}
+          path: |
+            dist-public/*.exe
+            dist-public/*.AppImage
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: pkgs
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: pkgs/*
+          generate_release_notes: true

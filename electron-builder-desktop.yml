@@ -1,0 +1,41 @@
+# Halka acik masaustu paketleri (Windows + Linux).
+#
+# Neden ayri bir dosya: package.json'daki "build" alani Mac App Store paketini
+# tanimliyor ve ona dokunulmamali (build 8 yuklendi). Bu dosya yalnizca
+# --config ile cagrildiginda kullanilir.
+#
+# Mac hedefi YOK: macOS kullanicilari App Store surumunu aliyor. Buradan
+# imzasiz bir .dmg yayinlamak Gatekeeper'a takilirdi.
+appId: io.relaypulse.app
+productName: RelayPulse
+asar: true
+
+files:
+  - "**/*"
+  - "!**/*.md"
+  - "!tools/**"
+  - "!electron-builder*.yml"
+  - "!dist/**"
+  - "!dist-*/**"
+  - "!.git/**"
+  # .claude bir kez asar'a girdi ve icinde gercek relay IP'si vardi.
+  - "!.claude/**"
+  - "!**/__pycache__/**"
+  - "!build/**"
+
+directories:
+  output: dist-public
+
+linux:
+  target:
+    - AppImage
+  icon: assets/icon.png
+  category: Utility
+
+win:
+  target:
+    - portable
+  icon: assets/icon.png
+  # Sitedeki mevcut indirme adlariyla ayni kalip: varsayilan ad ("RelayPulse
+  # 1.7.2.exe") hem bosluk iceriyor hem mimariyi soylemiyor.
+  artifactName: "RelayPulse-${version}-windows-${arch}.exe"

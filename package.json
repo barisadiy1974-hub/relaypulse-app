@@ -1,0 +1,64 @@
+{
+  "name": "relaypulse",
+  "version": "1.8.0",
+  "description": "SSH monitoring and AI auto-fix for relay and exit nodes",
+  "homepage": "https://barisadiy1974-hub.github.io/relaypulse/",
+  "main": "main.js",
+  "author": "RelayPulse",
+  "license": "MIT",
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "electron": "30.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist:mas": "electron-builder --mac mas --publish never"
+  },
+  "build": {
+    "appId": "com.baris.relaypulse",
+    "productName": "RelayPulse",
+    "buildVersion": "16",
+    "files": [
+      "!.claude${/*}",
+      "!docs${/*}",
+      "!tools${/*}",
+      "!build${/*}",
+      "!*.md",
+      "!icon.png",
+      "!renderer/trial-expired.html",
+      "!dist${/*}",
+      "!dist-public${/*}",
+      "!dist-*${/*}"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "mas",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "x64ArchFiles": "**/sshcrypto.node",
+      "extendInfo": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "mas": {
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "provisioningProfile": "build/embedded.provisionprofile"
+    },
+    "masDev": {
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "provisioningProfile": "build/dev.provisionprofile"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+node_modules/
+dist/
+.claude/
+*.bak
+*.bak-*
+*.bak2-*
+*.bak3-*
+.DS_Store
+*.log
+
+# MAS imzalama artifaktlari — hesaba bagli, suresi doluyor, repoda durmamali.
+# Yeniden uretim: developer.apple.com > Profiles > Mac App Store Connect
+# (com.baris.relaypulse) -> indir -> build/embedded.provisionprofile
+build/embedded.provisionprofile
+build/SANDBOX
+
+# Kisisel filo verisi — urunle dagitilmamali
+tools/*.tsv
+tools/reward-audit-report.json
+__pycache__/
+*.pyc
+dist-public/

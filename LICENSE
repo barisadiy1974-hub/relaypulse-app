@@ -1,0 +1,68 @@
+RelayPulse Source-Available License
+Copyright (c) 2026 RelayPulse. All rights reserved.
+
+This source code is published so that anyone can inspect it. RelayPulse asks
+you for SSH credentials and API keys, and you should not have to take our word
+for what it does with them. Reading this code is encouraged.
+
+Publishing the source does not place it in the public domain and does not make
+it open source. The terms below govern what you may do with it.
+
+
+1. WHAT YOU MAY DO
+
+   a) Read, inspect, audit and review this source code, for any purpose,
+      including publishing your findings about it.
+
+   b) Compile and run it on computers you own or administer, in order to
+      verify that a build you were given matches this source.
+
+   c) Use the software in production, provided you hold a valid license key
+      or are inside the trial period.
+
+   d) Modify your own copy for your own internal use, including fixing bugs
+      and adapting it to your environment.
+
+   e) Submit those modifications back to us as a contribution.
+
+
+2. WHAT YOU MAY NOT DO
+
+   a) Redistribute, publish, sublicense, sell, rent, or otherwise make this
+      software or any derivative of it available to anyone else, in source or
+      binary form, whether or not for a fee.
+
+   b) Remove, disable, bypass, or otherwise circumvent the license key check,
+      the trial period, or any other licensing mechanism; or help anyone else
+      to do so; or distribute a build in which this has been done.
+
+   c) Remove or alter any copyright, trademark, or license notice.
+
+   d) Use the RelayPulse name or logo to promote anything you distribute.
+
+
+3. CONTRIBUTIONS
+
+   By submitting a contribution you grant us a perpetual, worldwide,
+   royalty-free license to use it in this software under these terms.
+
+
+4. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+
+5. TERMINATION
+
+   If you breach section 2, the rights granted by this license end
+   automatically. Section 1(a) — the right to read and audit the code —
+   survives that termination.
+
+
+Questions about permitted use: open an issue on the repository.
