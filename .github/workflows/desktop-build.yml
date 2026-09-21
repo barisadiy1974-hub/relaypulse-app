@@ -32,6 +32,10 @@ jobs:
           node-version: '20'
       - run: npm ci
       - run: npx electron-builder --config electron-builder-desktop.yml ${{ matrix.target }} --publish never
+      # Paketleme main.js'i calistirmaz: v1.8.0'da network-map/ klasoru depoda olmadigi
+      # icin paketler acilista "Cannot find module" ile duserek yayinlandi ve CI yesildi.
+      # Bu adim asar'in icine bakip her relatif require hedefinin paketlendigini dogrular.
+      - run: node scripts/verify-package.js
       - uses: actions/upload-artifact@v4
         with:
           name: pkg-${{ matrix.os }}
