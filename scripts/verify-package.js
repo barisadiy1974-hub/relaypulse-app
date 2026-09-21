@@ -10,7 +10,6 @@
  */
 const fs = require("fs");
 const path = require("path");
-const { execFileSync } = require("child_process");
 
 const OUT = "dist-public";
 
@@ -30,9 +29,33 @@ function findAsar(dir) {
   return hits;
 }
 
+/**
+ * asar icerigini DOGRUDAN okur. Onceki surum `npx @electron/asar list` cagiriyordu;
+ * Windows'ta npx bir .cmd oldugu icin execFileSync kabuk olmadan ENOENT veriyordu
+ * (build (windows-latest) bu yuzden kirmizi dondu). Bicim basit: 16 bayt pickle
+ * basligi, ardindan JSON dizin agaci — ek bagimlilik gerekmiyor.
+ */
 function asarList(asar) {
-  const out = execFileSync("npx", ["--yes", "@electron/asar", "list", asar], { encoding: "utf8" });
-  return new Set(out.split("\n").map((l) => l.trim().replace(/^[/\\]/, "")).filter(Boolean));
+  const fd = fs.openSync(asar, "r");
+  try {
+    const head = Buffer.alloc(16);
+    fs.readSync(fd, head, 0, 16, 0);
+    const jsonSize = head.readUInt32LE(12);
+    const json = Buffer.alloc(jsonSize);
+    fs.readSync(fd, json, 0, jsonSize, 16);
+    const tree = JSON.parse(json.toString("utf8").replace(/\0+$/, ""));
+    const out = new Set();
+    (function walk(node, prefix) {
+      for (const [name, value] of Object.entries(node.files || {})) {
+        const p = prefix ? prefix + "/" + name : name;
+        out.add(p);
+        if (value && value.files) walk(value, p);
+      }
+    })(tree, "");
+    return out;
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /** Kaynaktaki her .js dosyasindan relatif require hedeflerini topla. */
