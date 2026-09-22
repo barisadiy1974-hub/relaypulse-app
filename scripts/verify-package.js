@@ -100,6 +100,11 @@ for (const asar of asars) {
 
   // 2. Her relatif require hedefi cozulebiliyor mu
   for (const { from, target } of relativeRequires()) {
+    // Yalnizca asar'a GIREN dosyalarin require'lari sayilir. Kaynak agacinda olup
+    // pakete bilerek alinmayan dosyalar (tools/** denetim kosumu) yanlis pozitif
+    // uretiyordu: tools/audit/check.js -> ./harness.js, ikisi de zaten disarida.
+    // Paketin butunlugu, paketlenmemis bir dosyanin bagimliligini ilgilendirmez.
+    if (!entries.has(from.split(path.sep).join("/"))) continue;
     const base = path.posix.normalize(path.posix.join(path.posix.dirname(from.split(path.sep).join("/")), target));
     const candidates = [base, `${base}.js`, `${base}.json`, `${base}/index.js`];
     if (!candidates.some((c) => entries.has(c))) {
