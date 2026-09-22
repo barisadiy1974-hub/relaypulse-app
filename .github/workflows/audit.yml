@@ -1,0 +1,30 @@
+# Denetim takimi: uygulamayi acmadan, SSH kurmadan, hicbir kullanici dosyasina
+# dokunmadan gercek main.js'i yukleyip fonksiyonlari dusmanca girdiyle kosar.
+#
+# Bilerek `npm ci` YOK: harness electron'u ve ssh2'yi sahteliyor, yani tek
+# bagimlilik node'un kendisi. Kurulum ~2 dakika, bu is ~2 saniye — her push'ta
+# kosabilmesinin sebebi bu.
+name: Audit
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Sozdizimi
+        run: |
+          node --check main.js
+          node --check preload.js
+          node --check renderer/app.js
+          for f in src/*.js; do node --check "$f"; done
+          python3 -c "import ast; ast.parse(open('agent/agent.py').read())"
+      - name: Denetim kontrolleri
+        run: npm run audit

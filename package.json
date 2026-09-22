@@ -17,7 +17,8 @@
   },
   "scripts": {
     "start": "electron .",
-    "dist:mas": "electron-builder --mac mas --publish never"
+    "dist:mas": "electron-builder --mac mas --publish never",
+    "audit": "node tools/audit/check.js"
   },
   "build": {
     "appId": "com.baris.relaypulse",
