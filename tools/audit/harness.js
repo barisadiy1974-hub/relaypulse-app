@@ -14,6 +14,24 @@ function fnProxy(name) {
   });
 }
 const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'rp-audit-'));
+// Electron'un app'inde sahtelenmemis bir metoda dokunulursa ne yapmali?
+// Bu bir UYGULAMA hatasi degil, KOSUM eksigidir: main.js:106 gibi platforma ozel
+// cagrilar (app.disableHardwareAcceleration, sadece linux) macOS'ta hic
+// calismadigi icin yerelde yesil, Ubuntu runner'da patlak veriyordu. Bilinmeyen
+// anahtar sessizce no-op doner ve kaydedilir; check.js sonunda listeler, boylece
+// eksik sessiz kalmaz.
+const stubGaps = new Set();
+function tolerant(obj, label) {
+  return new Proxy(obj, {
+    get(t, k) {
+      if (k in t) return t[k];
+      // 'then' no-op donerse nesne thenable sanilir ve await'ler kirilir.
+      if (typeof k !== 'string' || k === 'then') return undefined;
+      stubGaps.add(`${label}.${k}`);
+      return () => {};
+    },
+  });
+}
 const electronStub = {
   app: {
     getPath: (k) => (k === 'userData' ? tmpUserData : os.tmpdir()),
@@ -23,6 +41,7 @@ const electronStub = {
     requestSingleInstanceLock: () => true, relaunch: noop, exit: noop, dock: { setBadge: noop, setIcon: noop },
     setAboutPanelOptions: noop, commandLine: { appendSwitch: noop },
   },
+  __wrapApp: true,
   BrowserWindow: class { constructor(o) { captured.windows.push(o || {}); this.webContents = { send: noop, on: noop, once: noop, setWindowOpenHandler: noop, session: { setCertificateVerifyProc: noop, webRequest: { onBeforeRequest: noop } }, openDevTools: noop, executeJavaScript: async () => {} }; }
     static getAllWindows() { return []; } loadFile() {} loadURL() {} on() {} once() {} show() {} hide() {} focus() {} isDestroyed() { return false; } setMenu() {} },
   ipcMain: { handle: (ch, fn) => { captured.handlers[ch] = fn; }, on: noop, removeHandler: noop },
@@ -47,4 +66,6 @@ Module._load = function (req, parent, isMain) {
   }
   return origLoad.apply(this, arguments);
 };
-module.exports = { ROOT, captured, tmpUserData, electronStub, load: (rel) => require(path.join(ROOT, rel)) };
+delete electronStub.__wrapApp;
+electronStub.app = tolerant(electronStub.app, 'app');
+module.exports = { ROOT, captured, tmpUserData, electronStub, stubGaps, load: (rel) => require(path.join(ROOT, rel)) };

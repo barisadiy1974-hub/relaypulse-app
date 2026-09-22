@@ -261,6 +261,9 @@ print("ok")`;
     expect(out.trim() === 'ok', 'agent.py kontrolu basarisiz');
   });
 
+  if (h.stubGaps.size) {
+    console.log(`\nKOSUM EKSIGI (sahtelenmemis, no-op donduruldu): ${[...h.stubGaps].join(', ')}`);
+  }
   const pass = results.filter(Boolean).length;
   const sk = skipped.length ? `, ${skipped.length} SKIP` : '';
   console.log(`\n${results.length + skipped.length} kontrol: ${pass} PASS, ${results.length - pass} FAIL${sk}`);
