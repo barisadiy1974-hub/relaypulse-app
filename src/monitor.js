@@ -732,6 +732,23 @@ function parseDisk(text) {
   };
 }
 
+// Servis durumu + dinlenen portlardan TEK karar noktasi.
+// Hem SSH yolu (parseAnon) hem agent yolu (applyAgent) bunu kullanir; agent.py
+// ayni karari kendi de veriyordu ama port bastirmasi eksikti (bkz. asagi).
+function anonStateFrom(services, ports) {
+  const vals = Object.values(services || {});
+  const list = Array.isArray(ports) ? ports : [];
+  const anyActive = vals.some(v => v === 'active' || v === 'activating');
+  const anyKnown = vals.length > 0;
+  // Port-only tespiti YALNIZCA servis durumu hic bilinmiyorken gecerli: cokmus
+  // bir anon'un artik soketi aksi halde karti yesil tutuyor.
+  const portActive = !anyKnown && list.length > 0;
+  // Hicbir veri yoksa bu "kapali" degil, "okunamadi".
+  if (anyActive || portActive) return 'active';
+  if (!anyKnown && list.length === 0) return 'unknown';
+  return vals.find(v => v && v !== 'active') || 'inactive';
+}
+
 function parseAnon(text) {
   // Each line is either "<svc>=<state>" for a service probe, or a
   // comma-separated port list (the last non-empty line).
@@ -741,23 +758,24 @@ function parseAnon(text) {
   for (const ln of lines) {
     const m = ln.match(/^([A-Za-z0-9@_.\-]+)=(\w+)$/);
     if (m) services[m[1]] = m[2];
-    else if (ln.includes(':')) ports = ln.split(',').filter(Boolean);
+    else {
+      // BUG FIX (2026-09-22): "iki nokta iceriyorsa port listesidir" varsayimi yanlisti.
+      // Uzak taraftan gelen HERHANGI bir gurultu satiri (ssh "Warning: Permanently added
+      // ...", "bash: line 12: systemctl: command not found", sudo host uyarisi) port
+      // sanilip relay ACTIVE gosteriliyordu: servis durumu okunamadigi halde kart YESIL
+      // kaliyor ve auto-fix (kosulu 'inactive') hic tetiklenmiyordu. Artik her parca
+      // gercekten adres:port bicimimde olmali.
+      const parts = ln.split(',').map(x => x.trim()).filter(Boolean);
+      const isPort = (x) => /^[0-9a-fA-F.:\[\]%*]+:\d{1,5}$/.test(x);
+      if (parts.length && parts.every(isPort)) ports = parts;
+    }
   }
   // "active" = any probed service reports active, OR (only when no service
   // status was detected at all) listening ports on the anon range.
   // Port-only detection is intentionally suppressed when services are known
   // to be inactive/failed — otherwise a lingering socket after a crash keeps
   // the card green even though the relay is down.
-  const anyActive = Object.values(services).some(v => v === 'active' || v === 'activating');
-  const anyKnown = Object.keys(services).length > 0;
-  const portActive = !anyKnown && ports.length > 0;
-  // ÖNEMLI: Hiç veri okunamadıysa (servis durumu YOK + port YOK), bu "servis kapalı"
-  // demek DEĞİL — SSH/agent çıktısı eksik/boş gelmiş demek. Bu durumda 'unknown' dön.
-  // 'inactive' dönmek yanlış auto-fix tetiklenmesine ve gereksiz restart döngüsüne yol açıyordu.
-  const noDataAtAll = !anyKnown && ports.length === 0;
-  const active = (anyActive || portActive) ? 'active'
-    : noDataAtAll ? 'unknown'
-    : (Object.values(services).find(v => v && v !== 'active') || 'inactive');
+  const active = anonStateFrom(services, ports);
   return { active, ports, services };
 }
 
@@ -954,6 +972,13 @@ class Monitor extends EventEmitter {
           cpu = d.cpu || null;
           cpuCount = d.cpuCount || null;
           anon = d.anon || { active: 'unknown', ports: [], services: {} };
+          // BUG FIX (2026-09-22): agent.py (satir 112) 'active' if (any_active or ports)
+          // diyor — port bastirmasi YOK. Servisi cokmus ama soketi hala acik bir relay
+          // agent modunda YESIL gorunuyordu (SSH modunda dogru kirmizi). Servis listesi
+          // geldiginde karari burada yeniden ver; agent guncellenmeden de dogru calissin.
+          if (anon && anon.services && Object.keys(anon.services).length) {
+            anon = { ...anon, active: anonStateFrom(anon.services, anon.ports) };
+          }
           uptime = d.uptime || '';
           publicIp = d.publicIp || '';
         };

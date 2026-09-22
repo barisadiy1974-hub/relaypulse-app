@@ -1200,9 +1200,11 @@ function updateCard(name) {
   }
 
   const anonOkNow = isAnonActive(current);
+  // Durum okunamadiysa "Inactive" (kirmizi) yazmak yaniltici — notr goster.
+  const anonUnknownNow = ((current.anon && current.anon.active) || '') === 'unknown';
   if (current.anon && anonState) anonState.textContent = anonOkNow ? 'ok' : 'down';
   setService('.https-main', state === 'offline' ? '—' : 'OK', state === 'offline' ? 'warn' : 'ok');
-  setService('.anon-main', anonOkNow ? 'Active' : 'Inactive', anonOkNow ? 'ok' : 'err');
+  setService('.anon-main', anonOkNow ? 'Active' : (anonUnknownNow ? '—' : 'Inactive'), anonOkNow ? 'ok' : (anonUnknownNow ? 'warn' : 'err'));
   const hasPort9001 = current.anon && Array.isArray(current.anon.ports) && current.anon.ports.some((p) => String(p).includes('9001'));
   setService('.port-main', hasPort9001 || anonOkNow ? 'Open' : '—', hasPort9001 || anonOkNow ? 'ok' : 'warn');
   setService('.family-main', state === 'offline' ? 'Unknown' : 'OK', state === 'offline' ? 'warn' : 'ok');
@@ -1228,9 +1230,10 @@ function updateCardTiles(card, snap, state) {
   // Anon service
   const anonOk = isAnonActive(snap);
   const ports = (snap.anon && snap.anon.ports) ? snap.anon.ports.length : 0;
-  setTile('tile-anon', anonOk ? `Active${ports ? ' · ' + ports + 'p' : ''}` : 'Inactive', JSON.stringify(snap.anon || {}));
+  const anonUnknown = ((snap.anon && snap.anon.active) || '') === 'unknown';
+  setTile('tile-anon', anonOk ? `Active${ports ? ' · ' + ports + 'p' : ''}` : (anonUnknown ? '—' : 'Inactive'), JSON.stringify(snap.anon || {}));
   const anonTile = card.querySelector('.tile-anon');
-  if (anonTile) anonTile.classList.toggle('bad', !anonOk);
+  if (anonTile) anonTile.classList.toggle('bad', !anonOk && !anonUnknown);
   // NIC
   setTile('tile-nic', snap.iface || '—', snap.iface || '');
   // Load 5/15m

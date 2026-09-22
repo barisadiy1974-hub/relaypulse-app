@@ -109,7 +109,19 @@ def collect():
     ports = [p for p in ports_raw.splitlines() if p]
 
     any_active = any(v in ('active', 'activating') for v in services.values())
-    anon_state = 'active' if (any_active or ports) else (next((v for v in services.values() if v and v != 'active'), 'inactive'))
+    any_known = bool(services)
+    # BUG FIX (2026-09-22): eskiden 'active' if (any_active or ports) idi. Cokmus bir
+    # servisin artik soketi hala dinlendigi icin relay SAGLIKLI raporlaniyordu; bu JSON'u
+    # hem telefon hem masaustunun agent modu aynen kullandigindan iki uygulamada da kart
+    # YESIL kaliyor, SSH modunda ayni relay dogru sekilde kirmizi gorunuyordu.
+    # Port-only tespiti yalnizca hicbir servis durumu okunamadiginda gecerlidir.
+    port_active = (not any_known) and bool(ports)
+    if any_active or port_active:
+        anon_state = 'active'
+    elif not any_known:
+        anon_state = 'unknown'   # veri yok = "kapali" degil, "okunamadi"
+    else:
+        anon_state = next((v for v in services.values() if v and v != 'active'), 'inactive')
 
     uptime = _sh('uptime -p 2>/dev/null || uptime').strip().split('\n')[0]
 

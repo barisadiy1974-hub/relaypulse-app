@@ -901,7 +901,18 @@ function classifyRelayIssue(snap) {
   const flags = snap && snap.flags ? snap.flags : null;
   if (flags && flags.running === false) return 'dashboard';
   if (flags && flags.ok === false) return 'dashboard';
-  if (anonActive && !anonActive.includes('active')) return 'anon';
+  // BUG FIX (2026-09-22): 'unknown' = servis durumu OKUNAMADI, "kapali" degil.
+  // main.js:1676 ve renderer'daki hasRelayServiceWarning bunu ozellikle disliyor,
+  // ama issueKind='anon' donunce uyari ayni fonksiyona arka kapidan geri giriyordu
+  // (hasRelayServiceWarning son satiri issueKind==='anon' de kabul ediyor).
+  // BUG FIX (2026-09-22), iki ayri hata tek satirda:
+  //  1) includes('active') ALT DIZI aramasi — 'inactive'.includes('active') TRUE donuyor,
+  //     yani gercekten durmus bir servis hic 'anon' arizasi sayilmiyordu (renderer'daki
+  //     isAnonActive bu tuzagi ek '!includes(inactive)' ile atlatmis, burada atlanmamis).
+  //  2) 'unknown' = durum OKUNAMADI, "kapali" degil; ariza sayilinca renderer'in
+  //     hasRelayServiceWarning'indeki unknown muafiyeti issueKind uzerinden delinyordu.
+  // parseAnon ya tam olarak 'active' ya 'unknown' ya da ham systemctl durumu doner.
+  if (anonActive && anonActive !== 'active' && anonActive !== 'unknown') return 'anon';
   if (/anon servisi inactive|relay offline for 3 polls|failed to bind/i.test(msg)) return 'anon';
   if (/dashboard_running=false|running=false|relay api bu fingerprint/i.test(msg)) return 'dashboard';
   if (/connection closed by|broken pipe|timed out|timeout|ssh master|mux_client_request_session|ssh cevap vermiyor|ssh baglantisi|connection refused|host key|permission denied/i.test(msg)) return 'ssh';
@@ -1156,7 +1167,12 @@ const pendingAutoFixResults = [];
 function classifyAutoFixability(errorMsg) {
   const msg = String(errorMsg || '');
   if (!msg) return { autoFixable: true, reason: '' };
-  if (/Kimlik dogrulama basarisiz|Permission denied|Host key uyusmazligi/i.test(msg)) {
+  // BUG FIX (2026-09-22): kaliplar yalnizca ESKI Turkce metinleri ariyordu; monitor.js
+  // artik Ingilizce mesaj uretiyor ("Authentication failed: ...", "Host key mismatch: ...").
+  // Olculdu: "Host key verification failed." -> autoFixable TRUE donuyordu, yani host
+  // anahtari degismis (olasi MITM) bir kutuda AI cagrilip komut denenecekti.
+  if (/Kimlik dogrulama basarisiz|Permission denied|Host key uyusmazligi/i.test(msg)
+      || /Authentication failed|Host key mismatch|Host key verification failed|Too many authentication failures/i.test(msg)) {
     return { autoFixable: false, reason: 'SSH credentials or host key problem; remote commands cannot be run.' };
   }
   // Bağlantı kurulamadan kopan durumlar da auto-fix'e KAPALI olmalı: komut
@@ -1166,7 +1182,9 @@ function classifyAutoFixability(errorMsg) {
   //  saatlerce OpenAI isteği atıldı ve ulaşılamayan makinede komut denendi.)
   if (/SSH reddedildi|Connection refused|No route to host|Network is unreachable|Operation timed out|timed out/i.test(msg)
       || /Connection reset|reset by peer|Connection closed by|Broken pipe|kex_exchange_identification|banner exchange/i.test(msg)
-      || /oturumu uzak tarafca kapatildi|baglantisi koptu|Ag erisimi yok/i.test(msg)) {
+      || /oturumu uzak tarafca kapatildi|baglantisi koptu|Ag erisimi yok/i.test(msg)
+      // monitor.js'in Ingilizce karsiliklari:
+      || /SSH refused|Network unreachable|SSH connection dropped|SSH session closed by the remote side|No route to host/i.test(msg)) {
     return { autoFixable: false, reason: 'SSH connection unavailable; Auto-Fix cannot run a command without reaching the server.' };
   }
   return { autoFixable: true, reason: '' };
