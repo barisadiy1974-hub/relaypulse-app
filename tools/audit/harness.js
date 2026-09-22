@@ -17,7 +17,7 @@ const tmpUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'rp-audit-'));
 const electronStub = {
   app: {
     getPath: (k) => (k === 'userData' ? tmpUserData : os.tmpdir()),
-    getVersion: () => '1.8.1', getName: () => 'RelayPulse', getLocale: () => 'en-US',
+    getVersion: () => require(path.join(ROOT, 'package.json')).version, getName: () => 'RelayPulse', getLocale: () => 'en-US',
     whenReady: () => new Promise(() => {}), on: noop, once: noop, quit: noop,
     isPackaged: false, setLoginItemSettings: noop, getLoginItemSettings: () => ({}),
     requestSingleInstanceLock: () => true, relaunch: noop, exit: noop, dock: { setBadge: noop, setIcon: noop },
