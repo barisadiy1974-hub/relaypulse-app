@@ -40,6 +40,7 @@
         <button data-tab="htop"><span>Htop</span></button>
         <button data-tab="config"><span id="navConfig">Tools</span></button>
         <button data-tab="settings"><span id="navSettings">Settings</span></button>
+        <button id="navHelpBtn"><span>Help</span></button>
         <button id="openConfigBtn"><span id="navOpenConfig">Relay Config</span></button>
         <button id="navNetworkMapBtn"><span id="navNetworkMap">Network Map</span></button>
       </nav>
@@ -277,6 +278,7 @@
         <button class="settings-subtab" data-pane="pane-security" id="subtabSecurity">Security</button>
         <button class="settings-subtab" data-pane="pane-aifix" id="subtabAifix">AI Auto-Fix</button>
         <button class="settings-subtab" data-pane="pane-about" id="subtabAbout">About</button>
+        <button class="settings-subtab" data-pane="pane-help" id="subtabHelp">Help</button>
       </div>
 
       <div id="pane-servers" class="settings-pane">
@@ -385,26 +387,6 @@
 
           <h3 id="monPreviewTitle" style="margin-top:24px">Live Monitoring Preview</h3>
           <div id="monPreviewWrap" class="mon-preview"></div>
-
-          <h3 id="settingsTilesTitle" style="margin-top:24px">Dashboard Items</h3>
-          <p class="hint">The colored tiles shown under each server card. Pick the visual style, and use the checkboxes to choose which ones appear.</p>
-          <label>Style variant
-            <select id="tileStyle">
-              <option value="vivid">1 — Vivid (gradient + brightness)</option>
-              <option value="neon">2 — Neon (bright border, dark fill)</option>
-              <option value="pastel">3 — Pastel (soft tone)</option>
-              <option value="flat">4 — Flat (single color, low contrast)</option>
-              <option value="glass">5 — Glass (semi-transparent + blur)</option>
-              <option value="alien">6 — Alien (biomechanical, acid green)</option>
-              <option value="predator">7 — Predator (thermal HUD, red)</option>
-              <option value="aurora">8 — Aurora (vivid shifting gradient)</option>
-            </select>
-          </label>
-          <label class="chk"><input id="tileUptime" type="checkbox" checked> Uptime</label>
-          <label class="chk"><input id="tilePubip" type="checkbox" checked> Public IP</label>
-          <label class="chk"><input id="tileAnon" type="checkbox" checked> Anon Service</label>
-          <label class="chk"><input id="tileNic" type="checkbox" checked> Network Interface</label>
-          <label class="chk"><input id="tileLoad" type="checkbox" checked> Load 5/15m</label>
 
           <h3 id="settingsAlarmTitle" style="margin-top:24px">Alarm</h3>
           <label class="chk"><input id="alarmEnabled" type="checkbox"> Offline alarm active</label>
@@ -533,6 +515,105 @@
           <button id="quitBtn" class="danger">Quit app</button>
         </div>
       </div><!-- end pane-about -->
+      <div id="pane-help" class="settings-pane help-pane" style="display:none">
+        <div style="max-width:640px">
+          <h3 style="margin-top:0">Help</h3>
+          <p class="hint">RelayPulse reads your servers over SSH, or over the optional metrics agent. Nothing runs on a server of ours and no account is created. The iPhone app works the same way.</p>
+
+          <h4>First steps</h4>
+          <ol class="help-steps">
+            <li><b>Add a server.</b> Settings › Server Connections › <i>+ Add Server</i>. Give it a name and its IP address or hostname.</li>
+            <li><b>Choose how RelayPulse logs in.</b> Type the server's <i>Password</i> — for a VPS, the root password your provider sent you. Or use an SSH key, which is safer:
+              <span class="only-mas">click <i>Import SSH key</i> under the server list (one key for all servers).</span>
+              <span class="only-std">put the key file's path in <i>SSH key</i>, or leave it empty to use <code>~/.ssh/id_ed25519</code>.</span></li>
+            <li><b>Save Relay</b>, then <i>Test connection</i> to check the login straight away.</li>
+            <li><b>Watch.</b> On the Servers tab the card turns green, yellow or red after the next reading.</li>
+            <li><b>Optional: the HTTPS agent.</b> Click <i>Install</i> in the Agent column, or <i>Install HTTPS Agent on all</i>. It makes its own token — nothing to type. Then Settings › Monitoring › Connection type › HTTPS Agent.</li>
+          </ol>
+
+          <h4>Server fields</h4>
+          <dl class="help-list">
+            <dt>Relay name</dt><dd>Any label you like. It is what the cards and alerts show.</dd>
+            <dt>Host or SSH alias</dt><dd>The server's IP address or hostname.<span class="only-std"> An alias from <code>~/.ssh/config</code> also works.</span></dd>
+            <dt>User / Port</dt><dd>Usually <code>root</code> and <code>22</code>. Change them only if your server uses something else.</dd>
+            <dt class="only-std">SSH key</dt><dd class="only-std">Path to a private key file. Empty: <code>~/.ssh/id_ed25519</code> or your ssh config.</dd>
+            <dt>Password</dt><dd>The server's login password, stored encrypted on this computer.
+              <span class="only-mas">The imported key is tried first, then the password.</span>
+              <span class="only-std">When set it is used instead of the key, and it needs <code>sshpass</code> installed.</span></dd>
+            <dt>Anon instance</dt><dd>Only for Anyone relays, when one IP address runs two relays. Otherwise leave it empty.</dd>
+            <dt>Agent column</dt><dd><i>Install</i> puts the agent on that server over SSH; <i>🟢 Agent</i> means it is running — click it to remove.</dd>
+            <dt class="only-mas">Import SSH key</dt><dd class="only-mas">One private key (ed25519 or RSA, no passphrase) for all servers, kept in the encrypted vault. <code>~/.ssh</code> is not read.</dd>
+            <dt>Save Relay / Save Connections</dt><dd>Both save the whole server list. Monitoring picks up the change at once.</dd>
+          </dl>
+
+          <h4>Settings › General</h4>
+          <dl class="help-list">
+            <dt>License / Purchase</dt><dd><span class="only-mas">Free tier status, the purchase and Restore Purchases. One purchase covers Mac and iPhone.</span><span class="only-std">Your license key and how many days of the trial are left.</span></dd>
+            <dt>Demo Fleet</dt><dd>Sample servers to look around with. Nothing is contacted. RelayPulse restarts when you switch it.</dd>
+            <dt>Theme</dt><dd>Dark or light.</dd>
+            <dt>Default network</dt><dd>Leave it on Direct.</dd>
+            <dt>Zoom</dt><dd>Makes everything in the window larger or smaller.</dd>
+          </dl>
+
+          <h4>Settings › Monitoring</h4>
+          <dl class="help-list">
+            <dt>Connection type</dt><dd><i>SSH</i> works on every server with nothing installed. <i>HTTPS Agent</i> is faster and lighter on large fleets, but needs the agent on each server. Applies to all servers.</dd>
+            <dt>Interval (ms)</dt><dd>How often each server is read, in milliseconds: 120000 is two minutes, 30000 (30 seconds) is the lowest.</dd>
+            <dt>Default log lines</dt><dd>How many log lines the log views load.</dd>
+            <dt>Retry count</dt><dd>How many times one reading retries the SSH connection (1–3).</dd>
+            <dt>Timeout</dt><dd>The longest one reading may take, in seconds. 0 lets RelayPulse choose.</dd>
+            <dt>Heartbeat threshold</dt><dd>How many failed readings in a row turn a server red. One fewer shows yellow. A single miss stays green — short network hiccups are common and are not outages.</dd>
+            <dt>What counts as "up"</dt><dd>Which service to check on each server, e.g. <code>nginx</code> or <code>docker</code> — separate several with spaces. Ports: if none of those services exists, a server listening on one of these ports still counts as up. Leave both empty for the defaults.</dd>
+            <dt>Live Monitoring Preview</dt><dd>How many servers are online, yellow and red right now, and the average response time.</dd>
+            <dt>Alarm</dt><dd>A sound when a server goes offline, repeated every few minutes while it stays offline. <i>Test alarm</i> plays it once.</dd>
+            <dt>Low RAM warning</dt><dd>When a server's memory use passes this percentage, its card shows a Low RAM warning — a heads-up before the box freezes.</dd>
+            <dt>iPhone</dt><dd><i>Export for iPhone</i> saves the server list with agent ports and tokens for the iPhone app's Import. Passwords and SSH keys are not exported — add them on the phone.</dd>
+            <dt>Test connection</dt><dd>Runs one reading on the chosen server and shows exactly what came back.</dd>
+          </dl>
+
+          <h4>Settings › Security</h4>
+          <dl class="help-list">
+            <dt>Scan All Servers</dt><dd>Reads fail2ban, banned IPs, password login and SSH limits on every server. Changes nothing.</dd>
+            <dt>Harden Risky Ones</dt><dd>Installs fail2ban and tightens SSH limits. On servers you reach with a key it also switches password login off — check that the key works first. Servers you log in to with a password keep it. Relay ports are never touched.</dd>
+            <dt>Agent certificates</dt><dd>RelayPulse remembers each agent's certificate and refuses a different one. Reset only after reinstalling an agent.</dd>
+          </dl>
+
+          <h4>Settings › AI Auto-Fix</h4>
+          <dl class="help-list">
+            <dt>Incident Policy</dt><dd><i>Fix automatically</i> runs the chosen command. <i>Ask me before running</i> waits for your approval. <i>Diagnose only</i> never touches the server. <i>Disabled</i> turns it off.</dd>
+            <dt>AI Provider and API key</dt><dd>Optional: your own OpenAI or Claude key. The error and a few log lines go only to that provider. Without a key, simple built-in rules pick the command.</dd>
+            <dt>Commands</dt><dd>The only commands Auto-Fix may choose from. Edit, add or remove them; <i>Test AI</i> checks the key.</dd>
+          </dl>
+
+          <h4>Tabs</h4>
+          <dl class="help-list">
+            <dt>Servers</dt><dd>Every server as a card: service, connections, traffic, CPU, RAM. Click a card for details.</dd>
+            <dt>Terminal</dt><dd>A shell on the chosen server, inside the app.</dd>
+            <dt>Htop</dt><dd>Interactive htop for one server, in the built-in terminal. <code>q</code> quits.</dd>
+            <dt>Nyx and Tools</dt><dd>For Anyone/Tor relays: relay status, the relay configuration and the relay family (MyFamily). They appear only when a server runs relay software.</dd>
+          </dl>
+
+          <h4>What the colours mean</h4>
+          <dl class="help-list">
+            <dt><span class="state-dot online"></span>Online</dt><dd>Reachable, and the watched service is running.</dd>
+            <dt><span class="state-dot stale"></span>Warning / Stale</dt><dd>Reachable but the service is not active, or a few readings were missed — usually a network hiccup.</dd>
+            <dt><span class="state-dot offline"></span>Offline</dt><dd>Readings failed as many times in a row as the Heartbeat threshold. This one is real.</dd>
+          </dl>
+          <p class="hint">Zero connections is not an error: the server is running and simply has no traffic yet.</p>
+
+          <h4>When a server will not connect</h4>
+          <dl class="help-list">
+            <dt>Password refused</dt><dd>Wrong password, password login switched off on the server, or it only allows keyboard-interactive login. Use an SSH key instead.</dd>
+            <dt>Authentication refused</dt><dd>The key is not in the server's <code>/root/.ssh/authorized_keys</code> (for root), or it belongs to another user.</dd>
+            <dt>Timeout</dt><dd>Usually the wrong SSH port or a firewall.</dd>
+            <dt>Worked, then stopped</dt><dd>fail2ban on the server banned this computer's address after repeated failures. It lifts by itself after a while.</dd>
+          </dl>
+
+          <h4>Free tier and purchase</h4>
+          <p class="hint only-std">This version uses a license key: Settings › General › License.</p>
+          <p class="hint only-mas">Up to 3 servers are free. One purchase lifts the limit on Mac and iPhone together — bought on one, use Restore Purchases on the other with the same Apple Account.</p>
+        </div>
+      </div><!-- end pane-help -->
     </section><!-- end tab-settings -->
     </main>
   </div>

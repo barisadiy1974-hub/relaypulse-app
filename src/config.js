@@ -61,8 +61,6 @@ const DEFAULTS = {
   appAuthUser: '',
   appAuthSalt: '',
   appAuthHash: '',
-  dashboardTiles: { uptime: true, pubip: true, anon: true, nic: true, load: true },
-  dashboardTileStyle: 'flat',
   zoomFactor: 1,
   firstLaunchAt: 0,
   licensed: false,
@@ -87,7 +85,6 @@ function buildDefaults(data = {}) {
   return {
     ...clone(DEFAULTS),
     ...data,
-    dashboardTiles: { ...DEFAULTS.dashboardTiles, ...(data.dashboardTiles || {}) },
     // Boş dizi de varsayılanlara düşmeli. Aksi halde tek bir hatalı kayıt
     // (ör. Ayarlar > AI paneli render edilmeden Save'e basılması) komut listesini
     // kalıcı olarak boşaltıyor ve AI Auto-Fix hem canlıda hem "Test AI"de

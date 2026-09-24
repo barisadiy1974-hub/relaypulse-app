@@ -1157,109 +1157,6 @@ code { background: var(--panel-2); border: 1px solid var(--border); padding: 1px
 .card .tile.tile-nic     { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
 .card .tile.tile-load    { background: linear-gradient(135deg, #f97316 0%, #c2410c 100%); }
 
-/* === STIL 2: Neon (parlak kenar + koyu ic) === */
-.cards.tile-style-neon .tile {
-  background: #0a0e14;
-  border: 1.5px solid currentColor;
-  box-shadow: 0 0 14px currentColor, inset 0 0 8px rgba(255,255,255,0.05);
-}
-.cards.tile-style-neon .tile::after { display: none; }
-.cards.tile-style-neon .tile .tile-value,
-.cards.tile-style-neon .tile .tile-label { color: #fff; text-shadow: 0 0 6px currentColor; }
-.cards.tile-style-neon .tile.tile-uptime  { color: #a78bfa; }
-.cards.tile-style-neon .tile.tile-pubip   { color: #22d3ee; }
-.cards.tile-style-neon .tile.tile-anon    { color: #34d399; }
-.cards.tile-style-neon .tile.tile-anon.bad { color: #f87171; }
-.cards.tile-style-neon .tile.tile-nic     { color: #94a3b8; }
-.cards.tile-style-neon .tile.tile-load    { color: #fb923c; }
-
-/* === STIL 3: Pastel (yumusak ton, koyu yazi) === */
-.cards.tile-style-pastel .tile { color: #1f2937; box-shadow: 0 1px 0 rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.5); }
-.cards.tile-style-pastel .tile::after { display: none; }
-.cards.tile-style-pastel .tile .tile-label { opacity: 0.7; }
-.cards.tile-style-pastel .tile.tile-uptime  { background: #ddd6fe; }
-.cards.tile-style-pastel .tile.tile-pubip   { background: #a5f3fc; }
-.cards.tile-style-pastel .tile.tile-anon    { background: #bbf7d0; }
-.cards.tile-style-pastel .tile.tile-anon.bad { background: #fecaca; }
-.cards.tile-style-pastel .tile.tile-nic     { background: #e2e8f0; }
-.cards.tile-style-pastel .tile.tile-load    { background: #fed7aa; }
-
-/* === STIL 4: Flat (tek renk, sade) === */
-.cards.tile-style-flat .tile { box-shadow: none; }
-.cards.tile-style-flat .tile::after { display: none; }
-.cards.tile-style-flat .tile.tile-uptime  { background: #6d28d9; }
-.cards.tile-style-flat .tile.tile-pubip   { background: #0891b2; }
-.cards.tile-style-flat .tile.tile-anon    { background: #059669; }
-.cards.tile-style-flat .tile.tile-anon.bad { background: #dc2626; }
-.cards.tile-style-flat .tile.tile-nic     { background: #334155; }
-.cards.tile-style-flat .tile.tile-load    { background: #ea580c; }
-
-/* === STIL 5: Glass (yari saydam + blur) === */
-.cards.tile-style-glass .tile {
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.18);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
-}
-.cards.tile-style-glass .tile::after {
-  background: linear-gradient(135deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 60%);
-}
-.cards.tile-style-glass .tile.tile-uptime  { background: rgba(124,58,237,0.35); }
-.cards.tile-style-glass .tile.tile-pubip   { background: rgba(6,182,212,0.35); }
-.cards.tile-style-glass .tile.tile-anon    { background: rgba(16,185,129,0.35); }
-.cards.tile-style-glass .tile.tile-anon.bad { background: rgba(239,68,68,0.40); }
-.cards.tile-style-glass .tile.tile-nic     { background: rgba(71,85,105,0.40); }
-.cards.tile-style-glass .tile.tile-load    { background: rgba(249,115,22,0.40); }
-
-/* === STIL 6: Alien (biomekanik, asit yesili) === */
-.cards.tile-style-alien .tile {
-  background: linear-gradient(165deg, #060a08 0%, #0f1f17 50%, #060a08 100%);
-  border: 1px solid #14502e;
-  box-shadow: 0 0 14px rgba(40, 200, 90, 0.20), inset 0 0 22px rgba(0, 0, 0, 0.65);
-  color: #b8ff9e;
-  font-family: "Courier New", ui-monospace, monospace;
-}
-.cards.tile-style-alien .tile::after {
-  background:
-    radial-gradient(ellipse at 18% 0%, rgba(132, 255, 99, 0.15) 0%, transparent 55%),
-    repeating-linear-gradient(90deg, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 6px, rgba(132, 255, 99, 0.05) 6px, rgba(132, 255, 99, 0.05) 7px);
-}
-.cards.tile-style-alien .tile-label { color: #6dff44; text-shadow: 0 0 8px rgba(109,255,68,0.7); letter-spacing: 0.18em; opacity: 1; }
-.cards.tile-style-alien .tile-value { color: #d4ffc4; text-shadow: 0 0 6px rgba(109,255,68,0.45); }
-.cards.tile-style-alien .tile.tile-anon.bad {
-  border-color: #b04020;
-  box-shadow: 0 0 14px rgba(255, 90, 30, 0.50), inset 0 0 22px rgba(0,0,0,0.65);
-}
-.cards.tile-style-alien .tile.tile-anon.bad .tile-label { color: #ffae5d; text-shadow: 0 0 8px rgba(255,140,40,0.7); }
-.cards.tile-style-alien .tile.tile-anon.bad .tile-value { color: #ffd0a8; }
-
-/* === STIL 7: Predator (thermal HUD, kirmizi) === */
-.cards.tile-style-predator .tile {
-  background: linear-gradient(180deg, #0d0006 0%, #220812 60%, #0d0006 100%);
-  border: 1px solid #ff3d2e;
-  box-shadow: 0 0 16px rgba(255,40,30,0.40), inset 0 0 0 1px rgba(255,80,40,0.18);
-  color: #ffd266;
-  font-family: "Courier New", ui-monospace, monospace;
-}
-.cards.tile-style-predator .tile::after {
-  background:
-    repeating-linear-gradient(0deg, rgba(255,255,255,0) 0px, rgba(255,255,255,0) 2px, rgba(255,80,40,0.07) 2px, rgba(255,80,40,0.07) 3px),
-    radial-gradient(ellipse at 50% 100%, rgba(255,80,40,0.18), transparent 70%);
-}
-.cards.tile-style-predator .tile-label { color: #ff6a3a; letter-spacing: 0.22em; text-shadow: 0 0 8px #ff3d2e; opacity: 1; }
-.cards.tile-style-predator .tile-value { color: #ffeb99; text-shadow: 0 0 6px rgba(255, 200, 80, 0.7); }
-.cards.tile-style-predator .tile.tile-anon.bad {
-  border-color: #ffe600;
-  box-shadow: 0 0 14px rgba(255,230,0,0.55), inset 0 0 0 1px rgba(255,230,0,0.30);
-}
-.cards.tile-style-predator .tile.tile-anon.bad .tile-label { color: #ffe600; text-shadow: 0 0 10px #ffe600; }
-.cards.tile-style-predator .tile.tile-anon.bad .tile-value { color: #fffbcc; }
-
-.cards.hide-tile-uptime .tile-uptime,
-.cards.hide-tile-pubip  .tile-pubip,
-.cards.hide-tile-anon   .tile-anon,
-.cards.hide-tile-nic    .tile-nic,
-.cards.hide-tile-load   .tile-load { display: none; }
 
 /* === Cockpit Dashboard V3: visual upgrade, backend selectors preserved === */
 .cards.cockpit-grid, #cards.cockpit-grid {
@@ -1845,14 +1742,6 @@ body.scrolling .cockpit-card canvas.sparkline {
   .cards .card.cockpit-card:nth-child(8){animation-delay:.37s}
   @keyframes relayIn { from{opacity:0; transform:translateY(14px)} to{opacity:1; transform:translateY(0)} }
 
-  .cards.tile-style-aurora .tile {
-    background: linear-gradient(120deg,#7c3aed,#06b6d4,#10b981,#f59e0b,#7c3aed) !important;
-    background-size: 300% 300% !important; animation: auroraShift 8s ease infinite;
-  }
-  .cards.tile-style-aurora .tile::after { display:none; }
-  .cards.tile-style-aurora .tile .tile-value,
-  .cards.tile-style-aurora .tile .tile-label { color:#0b1220 !important; text-shadow:none !important; font-weight:800; }
-  @keyframes auroraShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
 }
 
 /* ===== Güvenlik / Sertleştirme paneli ===== */
@@ -3216,3 +3105,15 @@ body.no-relays #familyPanel { display: none !important; }
 .family-table td.fp { font-family: ui-monospace, Menlo, monospace; }
 .family-table .st-ok { color: #34d399; } .family-table .st-warn { color: #fbbf24; } .family-table .st-err { color: #f87171; }
 .family-table tr.fam-active td { background: rgba(124,106,247,.16); }
+
+/* Help pane + first-steps card (2026-09-24) */
+body.is-mas .only-std, body:not(.is-mas) .only-mas { display: none; }
+.help-pane h4 { margin: 22px 0 8px; font-size: 14px; }
+.help-steps { margin: 6px 0 10px; padding-left: 20px; line-height: 1.55; font-size: 13px; }
+.help-steps li { margin-bottom: 4px; }
+.help-list { display: grid; grid-template-columns: minmax(130px, max-content) 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+.help-list dt { font-weight: 600; color: var(--text); }
+.help-list dd { margin: 0; color: var(--muted); line-height: 1.5; }
+.help-list .state-dot { margin-right: 6px; }
+.profile-warning.first-steps { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.profile-warning.first-steps .row { gap: 8px; flex-wrap: wrap; margin: 6px 0 8px; }

@@ -1685,6 +1685,17 @@ function buildAppMenu() {
     },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [{
+        label: 'RelayPulse Help',
+        click: () => {
+          if (!win || win.isDestroyed()) return;
+          win.show(); win.focus();
+          win.webContents.send('focus-tab', 'help');
+        },
+      }],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

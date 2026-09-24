@@ -7,7 +7,10 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const HISTORY = 40; // points per sparkline (~6 min @ 10s poll)
 const snaps = new Map(); // name -> { last, lastOk, rxHist, txHist }
 let servers = [];
-let settings = { pollMs: 10000, logLines: 200, themeMode: 'light', languageMode: 'en', alarmEnabled: true, alarmSound: 'Hero', alarmRepeatMinutes: 5, ramWarnPct: 90, dashboardTiles: { uptime: true, pubip: true, anon: true, nic: true, load: true }, dashboardTileStyle: 'vivid' };
+// App Store build: SSH goes through ssh2 with ONE imported key (Import SSH key)
+// plus each server's password, so the per-server key path field does nothing there.
+let appIsMas = false;
+let settings = { pollMs: 10000, logLines: 200, themeMode: 'light', languageMode: 'en', alarmEnabled: true, alarmSound: 'Hero', alarmRepeatMinutes: 5, ramWarnPct: 90 };
 let autoFixSettings = { autoFixEnabled: false, aiProvider: 'openai', openaiApiKey: '', autoFixCommands: [] };
 let networkStatsTimer = null;
 let autoFixLogLines = [];
@@ -644,6 +647,8 @@ $('#hideBtn').addEventListener('click', () => window.api.hideWindow());
   settings = await window.api.getSettings();
   autoFixSettings = await window.api.getAutoFixSettings();
   const appInfo = await window.api.getAppInfo();
+  appIsMas = !!(appInfo && appInfo.mas);
+  document.body.classList.toggle('is-mas', appIsMas);
   applyLanguage(settings.languageMode || 'en');
   applyTheme(settings.themeMode || 'light');
   $('#pollMs').value = settings.pollMs;
@@ -653,15 +658,6 @@ $('#hideBtn').addEventListener('click', () => window.api.hideWindow());
   if ($('#offlineAfter')) $('#offlineAfter').value = Math.max(1, Math.min(5, Number(settings.offlineAfter) || 3));
   if ($('#watchServices')) $('#watchServices').value = (settings.watchServices || []).join(' ');
   if ($('#watchPorts')) $('#watchPorts').value = (settings.watchPorts || []).join(' ');
-  const tiles = settings.dashboardTiles || {};
-  $('#tileUptime').checked = tiles.uptime !== false;
-  $('#tilePubip').checked = tiles.pubip !== false;
-  $('#tileAnon').checked = tiles.anon !== false;
-  $('#tileNic').checked = tiles.nic !== false;
-  $('#tileLoad').checked = tiles.load !== false;
-  $('#tileStyle').value = settings.dashboardTileStyle || 'vivid';
-  applyTileVisibility();
-  applyTileStyle();
   applyZoom(settings.zoomFactor || 1.0);
   const versionBadge = $('#appVersionBadge');
   if (versionBadge && appInfo && appInfo.version) versionBadge.textContent = `v${appInfo.version}`;
@@ -1841,8 +1837,9 @@ function renderSelectedRelayDetail() {
     <label>Host or SSH Alias<input data-detail-f="hostAlias" value="${escAttr(srv.host || srv.sshAlias || '')}" placeholder="relay.example.com"></label>
     <label>User<input data-detail-f="user" value="${escAttr(srv.user || '')}" placeholder="root"></label>
     <label>Port<input data-detail-f="port" type="number" min="1" max="65535" value="${escAttr(String(srv.port || 22))}"></label>
-    <label>SSH key<input data-detail-f="key" value="${escAttr(srv.key || '')}" placeholder="~/.ssh/id_ed25519"></label>
-    <label>Password<input data-detail-f="password" type="password" value="${escAttr(srv.password || '')}" placeholder="Optional — encrypted storage" autocomplete="new-password"></label>
+    ${appIsMas ? '' : `<label>SSH key<input data-detail-f="key" value="${escAttr(srv.key || '')}" placeholder="~/.ssh/id_ed25519"></label>`}
+    <label>Password<input data-detail-f="password" type="password" value="${escAttr(srv.password || '')}" placeholder="Optional — e.g. the root password from your VPS provider" autocomplete="new-password"></label>
+    <p class="hint">Log in with ${appIsMas ? 'the imported SSH key (Import SSH key, below the list)' : 'an SSH key'} or with this server's password — the same two choices as on iPhone. ${appIsMas ? 'The key is tried first' : 'A password, when set, is used instead of the key'}; the password is stored encrypted on this computer.</p>
     <label>Anon instance<input data-detail-f="instance" value="${escAttr(srv.instance || '')}" placeholder="Only when one IP runs two relays" autocomplete="off"></label>
     <div class="relay-detail-actions"><button class="detail-test" type="button">Test connection</button><button class="detail-save primary" type="button">Save Relay</button></div>`;
 
@@ -2273,24 +2270,13 @@ $('#saveSettings').addEventListener('click', async () => {
     .map(v => v.trim()).filter(v => /^[A-Za-z0-9@._-]+$/.test(v));
   const watchPorts = ($('#watchPorts')?.value || '').split(/[\s,]+/)
     .map(v => parseInt(v, 10)).filter(v => Number.isInteger(v) && v > 0 && v < 65536);
-  const dashboardTiles = {
-    uptime: !!$('#tileUptime').checked,
-    pubip: !!$('#tilePubip').checked,
-    anon: !!$('#tileAnon').checked,
-    nic: !!$('#tileNic').checked,
-    load: !!$('#tileLoad').checked,
-  };
-  const allowedStyles = ['vivid', 'neon', 'pastel', 'flat', 'glass', 'alien', 'predator', 'aurora'];
-  const dashboardTileStyle = allowedStyles.includes($('#tileStyle').value) ? $('#tileStyle').value : 'vivid';
-  settings = { ...settings, pollMs, logLines, defaultNetworkMode, languageMode, alarmEnabled, alarmSound, alarmRepeatMinutes, ramWarnPct, sshRetryCount, sshTimeoutMs, offlineAfter, dashboardTiles, dashboardTileStyle };
+  settings = { ...settings, pollMs, logLines, defaultNetworkMode, languageMode, alarmEnabled, alarmSound, alarmRepeatMinutes, ramWarnPct, sshRetryCount, sshTimeoutMs, offlineAfter };
   if (watchServices.length) settings.watchServices = watchServices;
   if (watchPorts.length) settings.watchPorts = watchPorts;
   await window.api.saveSettings(settings);
   applyLanguage(languageMode);
   updateNetworkBadge();
   renderQuickControls();
-  applyTileVisibility();
-  applyTileStyle();
   renderMonitoringPreview();
   pushOpsEvent(`Default network saved as ${defaultNetworkMode === 'direct' ? 'Direct' : 'Anyone'}`);
   flash($('#saveSettings'), 'Saved');
@@ -2318,31 +2304,6 @@ $('#exportPhoneBtn')?.addEventListener('click', async () => {
   } finally {
     btn.disabled = false;
   }
-});
-
-function applyTileVisibility() {
-  const grid = document.getElementById('cards');
-  if (!grid) return;
-  const t = settings.dashboardTiles || {};
-  grid.classList.toggle('hide-tile-uptime', t.uptime === false);
-  grid.classList.toggle('hide-tile-pubip', t.pubip === false);
-  grid.classList.toggle('hide-tile-anon', t.anon === false);
-  grid.classList.toggle('hide-tile-nic', t.nic === false);
-  grid.classList.toggle('hide-tile-load', t.load === false);
-}
-
-function applyTileStyle() {
-  const grid = document.getElementById('cards');
-  if (!grid) return;
-  ['vivid', 'neon', 'pastel', 'flat', 'glass', 'alien', 'predator', 'aurora'].forEach((s) => grid.classList.remove('tile-style-' + s));
-  const style = settings.dashboardTileStyle || 'vivid';
-  grid.classList.add('tile-style-' + style);
-}
-$('#tileStyle').addEventListener('change', () => {
-  const allowedStyles = ['vivid', 'neon', 'pastel', 'flat', 'glass', 'alien', 'predator', 'aurora'];
-  const val = $('#tileStyle').value;
-  settings.dashboardTileStyle = allowedStyles.includes(val) ? val : 'vivid';
-  applyTileStyle();
 });
 
 function applyZoom(factor) {
@@ -3169,6 +3130,8 @@ if (window.api.onFocusTab) {
     } else if (target === 'ai') {
       openTab('settings');
       document.querySelector('.settings-subtab[data-pane="pane-aifix"]')?.click();
+    } else if (target === 'help') {
+      openHelp();
     }
   });
 }
@@ -3306,13 +3269,35 @@ async function renderProfileCard() {
   if (!warn) return;
   // The demo fleet is not in the config, so an empty profile is expected there.
   if (p.relayCount > 0 || p.demo) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
+  // New users met this box first and it only talked about profiles; it now
+  // says what to do. The profile note stays, small, for the two-copies case.
   warn.style.display = '';
-  warn.innerHTML = p.sandboxed
-    ? `<b>This is the sandboxed build and its profile is empty.</b> macOS keeps its settings in
-       its own container, so a fleet added in the standard build is not visible here — nothing
-       has been lost. Settings file in use:<br><code>${escapeHtml(p.userData)}</code>`
-    : `<b>No servers in this profile yet.</b> Add one under Settings &rsaquo; Server Connections.
-       Settings file in use:<br><code>${escapeHtml(p.userData)}</code>`;
+  warn.classList.add('first-steps');
+  warn.innerHTML = `<b>First steps</b>
+    <ol class="help-steps">
+      <li>Settings › Server Connections › <i>+ Add Server</i>: a name and the server's IP address.</li>
+      <li>Type the server's password (for a VPS, the root password from your provider)${p.sandboxed ? ', or use <i>Import SSH key</i>' : ', or an SSH key'}.</li>
+      <li><i>Save Relay</i>. The card turns green, yellow or red after the next reading.</li>
+    </ol>
+    <div class="row"><button type="button" class="primary fs-add">+ Add Server</button><button type="button" class="fs-help">How it works — every setting explained</button><button type="button" class="fs-demo">Try the demo fleet</button></div>
+    <p class="hint">${p.sandboxed ? 'The App Store version keeps its own server list; one added in another copy of RelayPulse does not appear here. ' : ''}Settings file: <code>${escapeHtml(p.userData)}</code></p>`;
+  warn.querySelector('.fs-add')?.addEventListener('click', () => {
+    openTab('settings');
+    document.querySelector('.settings-subtab[data-pane="pane-servers"]')?.click();
+    $('#addServer')?.click();
+  });
+  warn.querySelector('.fs-help')?.addEventListener('click', openHelp);
+  warn.querySelector('.fs-demo')?.addEventListener('click', () => {
+    openTab('settings');
+    document.querySelector('.settings-subtab[data-pane="pane-general"]')?.click();
+  });
+}
+
+$('#navHelpBtn')?.addEventListener('click', () => openHelp());
+
+function openHelp() {
+  openTab('settings');
+  document.querySelector('.settings-subtab[data-pane="pane-help"]')?.click();
 }
 
 
