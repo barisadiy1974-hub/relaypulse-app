@@ -23,16 +23,26 @@ let pendingCardUpdates = new Set();
 let aggregateDirty = false;
 let dashboardFilters = { query: '', state: 'all', anon: 'all' };
 let fleetReferenceRenderQueued = false;
+// Declared up here, not next to noteRelayHost(): cards are built during init,
+// before that part of the file runs, and reading a const in its TDZ throws.
+const relayHosts = (() => {
+  try { return new Set(JSON.parse(localStorage.getItem('relayHosts') || '[]')); } catch { return new Set(); }
+})();
+let demoActive = false;
+// Result of the last family check, per relay: 'ok' | 'outdated' | 'error'.
+// Until a check runs the card says '—': it used to print OK for any online relay
+// without ever looking at MyFamily.
+const familyState = new Map();
 const I18N = {
   en: {
     app_name: 'RelayPulse',
-    nav_dashboard: 'Relays',
+    nav_dashboard: 'Servers',
     nav_config: 'Tools',
     nav_settings: 'Settings',
     system_online: 'System: Online',
     refresh_now: 'Refresh Now',
     open_config: 'Relay Config',
-    search_placeholder: 'Search relays...',
+    search_placeholder: 'Search servers...',
     filter_all: 'All',
     filter_online: 'Online',
     filter_warn: 'Warning',
@@ -46,7 +56,7 @@ const I18N = {
     summary_offline: 'Offline',
     ai_log_empty: 'AI log: none yet',
     head_status: 'Status',
-    head_relay: 'Relay Name',
+    head_relay: 'Server Name',
     head_band: 'Bandwidth (RX / TX)',
     head_fingerprint: 'Fingerprint',
     server: 'Server',
@@ -55,7 +65,7 @@ const I18N = {
     language: 'Language',
     polling: 'Polling',
     alarm: 'Alarm',
-    subtab_servers: 'Relay Connections',
+    subtab_servers: 'Server Connections',
     subtab_general: 'General',
     subtab_monitoring: 'Monitoring',
     subtab_security: 'Security',
@@ -93,7 +103,7 @@ const I18N = {
     chip_ssh: 'SSH',
     chip_anon: 'Service',
     chip_dashboard_down: 'Dashboard ↓',
-    chip_offline_title: 'SSH/relay offline',
+    chip_offline_title: 'SSH/server offline',
     chip_stale_title: 'Transient failure, last good data shown',
     chip_lowram: 'Low RAM',
     state_online: 'Online',
@@ -280,7 +290,7 @@ function applyLanguage(lang) {
     setText('#sshTimeoutLabel', 'Timeout (seconds, 0 = auto)');
     setText('#offlineAfterLabel', 'Heartbeat threshold (missed polls → offline)');
     setText('#monPreviewTitle', 'Live Monitoring Preview');
-    setText('#monAdvancedHint', 'Retry: how many times SSH re-tries a connection per poll. Timeout: max seconds for one poll (0 lets RelayPulse pick based on interval). Heartbeat: after this many consecutive failed polls a relay card turns red (before that it stays yellow "stale"). Applied live on Save.');
+    setText('#monAdvancedHint', 'Retry: how many times SSH re-tries a connection per poll. Timeout: max seconds for one poll (0 lets RelayPulse pick based on interval). Heartbeat: after this many consecutive failed polls a server card turns red (before that it stays yellow "stale"). Applied live on Save.');
   }
   {
     setText('#settingsPhoneHint', 'Exports the fleet list (host, agent port, token) as a JSON file for the RelayPulse iPhone app. Send it to your phone with AirDrop, then use "Import" in the app. Re-run whenever agent tokens change.');
@@ -811,7 +821,33 @@ function updateSettingsSnapshot(name) {
   if (dot) dot.className = `state-dot ${state}`;
 }
 
+// Hosts seen running relay software: a watched unit named anon*, anyone* or
+// tor*. Nyx, Relay Config and the network map only mean something there, so a
+// fleet of web or database servers never sees them. Sticky on purpose — those
+// tools matter most when the relay is down and has stopped reporting its unit.
+// Same rule as the phone (FleetStore.relayHosts).
+function updateRelayNav() {
+  const show = relayHosts.size > 0 && !demoActive;
+  for (const sel of ['[data-tab="nyx"]', '#openConfigBtn', '#navNetworkMapBtn']) {
+    const el = $(sel);
+    if (el) el.style.display = show ? '' : 'none';
+  }
+  document.body.classList.toggle('no-relays', !show);
+}
+function noteRelayHost(s) {
+  const svcs = s && !s.demo && s.anon && s.anon.services;
+  if (!svcs || relayHosts.has(s.name)) return;
+  if (!Object.keys(svcs).some((k) => /^(anon|anyone|tor)/.test(k))) return;
+  relayHosts.add(s.name);
+  try { localStorage.setItem('relayHosts', JSON.stringify([...relayHosts])); } catch {}
+  const card = document.querySelector(`.cockpit-card[data-name="${CSS.escape(s.name)}"]`);
+  if (card) card.classList.add('is-relay');
+  updateRelayNav();
+}
+updateRelayNav();
+
 window.api.onSnapshot((s) => {
+  noteRelayHost(s);
   let st = snaps.get(s.name);
   if (!st) { st = { rxHist: [], txHist: [], totalRxGb: 0, totalTxGb: 0, peakMbps: 0 }; snaps.set(s.name, st); }
   const prevSnap = st.last || null;
@@ -864,6 +900,7 @@ function renderCards() {
     const card = document.createElement('div');
     card.className = 'card cockpit-card';
     card.dataset.name = srv.name;
+    card.classList.toggle('is-relay', relayHosts.has(srv.name));
     card.innerHTML = `
       <div class="card-glow"></div>
       <div class="cockpit-head">
@@ -1077,7 +1114,7 @@ function updateCard(name) {
   else if (state === 'stale') issueChips.push({ kind: 'warn', text: t('chip_stale'), title: s.error || t('chip_stale_title') });
   if (hourAvg > 0 && hourAvg < 11) issueChips.push({ kind: 'warn', text: t('chip_low_bw'), title: `${hourAvg.toFixed(2)} Mb/s < 11 Mb/s` });
   if (String(s.issueKind || '').toLowerCase() === 'ssh') issueChips.push({ kind: 'warn', text: t('chip_ssh'), title: s.error || 'SSH issue' });
-  if (hasRelayServiceWarning(s)) issueChips.push({ kind: 'warn', text: t('chip_anon'), title: s.error || 'anon service inactive' });
+  if (hasRelayServiceWarning(s)) issueChips.push({ kind: 'warn', text: t('chip_anon'), title: s.error || 'service inactive' });
   if (s && s.ramLow) issueChips.push({ kind: 'warn', text: t('chip_lowram'), title: s.mem ? `RAM ${s.mem.pct}% in use — available is low, freeze/OOM risk` : 'Low RAM' });
   if (hasDashboardDown(s)) issueChips.push({ kind: 'dashboard', text: t('chip_dashboard_down'), title: 'dashboard.anyone.io: relay running=false — SSH OK but not visible on the network' });
   if (state === 'online' && s && s.warnLines && s.warnLines.length) {
@@ -1102,7 +1139,11 @@ function updateCard(name) {
     const el = card.querySelector(sel);
     if (!el) return;
     el.textContent = value;
-    el.className = cls || '';
+    // Keep the element's own class. Replacing className wholesale dropped it,
+    // so the next update could not find the element and every KPI on the card
+    // froze at its first value (measured 2026-09-23: 0 of 10 cards still had
+    // .connection-main after two updates).
+    el.className = sel.slice(1) + (cls ? ' ' + cls : '');
   };
   if (state === 'offline') {
     setCockpitHealth('10%', 'err');
@@ -1110,7 +1151,7 @@ function updateCard(name) {
     setService('.https-main', '—', 'warn');
     setService('.anon-main', 'Down', 'err');
     setService('.port-main', '—', 'warn');
-    setService('.family-main', 'Unknown', 'warn');
+    setService('.family-main', familyLabel(name), familyClass(name));
     setService('.connection-main', '0 aktif', 'err');
     setState('err', t('state_offline'));
     card.classList.remove('stale', 'online');
@@ -1207,7 +1248,7 @@ function updateCard(name) {
   setService('.anon-main', anonOkNow ? 'Active' : (anonUnknownNow ? '—' : 'Inactive'), anonOkNow ? 'ok' : (anonUnknownNow ? 'warn' : 'err'));
   const hasPort9001 = current.anon && Array.isArray(current.anon.ports) && current.anon.ports.some((p) => String(p).includes('9001'));
   setService('.port-main', hasPort9001 || anonOkNow ? 'Open' : '—', hasPort9001 || anonOkNow ? 'ok' : 'warn');
-  setService('.family-main', state === 'offline' ? 'Unknown' : 'OK', state === 'offline' ? 'warn' : 'ok');
+  setService('.family-main', familyLabel(name), familyClass(name));
   updateCardFlags(name);
   updateCardTiles(card, current, state);
   drawSpark(card.querySelector('canvas'), st.rxHist, st.txHist);
@@ -1399,10 +1440,10 @@ function updateAgg() {
     summaryStreak.textContent = `${avgStreak.toFixed(1)}${isEnLang ? 'd' : 'g'}`;
     const p = summaryStreak.closest('.summary-item');
     if (p) p.title = isEnLang
-      ? `Average uninterrupted uptime streak (online relays): ${avgStreak.toFixed(1)} days\n`
+      ? `Average uninterrupted uptime streak (online servers): ${avgStreak.toFixed(1)} days\n`
         + `Reward tier distribution → 5x: ${tierCount['5x']} · 3x: ${tierCount['3x']} · 2x: ${tierCount['2x']} · 1x: ${tierCount['1x']}\n`
         + `Streak = uninterrupted online days; one interruption RESETS it. (Based on this monitor's observation — check the official Anyone dashboard for the official tier.)`
-      : `Average continuous uptime streak (online relays): ${avgStreak.toFixed(1)} days\n`
+      : `Average continuous uptime streak (online servers): ${avgStreak.toFixed(1)} days\n`
         + `Reward tier distribution → 5x: ${tierCount['5x']} · 3x: ${tierCount['3x']} · 2x: ${tierCount['2x']} · 1x: ${tierCount['1x']}\n`
         + `Streak = continuous online days; one outage resets it. (Based on this monitor's observations — see the Anyone dashboard for the official tier.)`;
   }
@@ -1452,7 +1493,7 @@ function renderFleetAlertPanel() {
       : `${escapeHtml(srv.name)} needs attention`;
     const description = isOffline
       ? escapeHtml(snap.error || 'The last connection check failed.')
-      : escapeHtml(serviceIssue ? 'The watched service or the dashboard needs attention.' : (snap.error || 'The last check was delayed.'));
+      : escapeHtml(serviceIssue ? (relayHosts.has(srv.name) ? 'The relay service or the network dashboard needs attention.' : 'The watched service is not running.') : (snap.error || 'The last check was delayed.'));
     const when = typeof snap.ts === 'number' ? fmtSince(snap.ts) : 'just now';
     issues.push({ isOffline, serviceIssue, title, description, when });
   }
@@ -1785,7 +1826,7 @@ function renderSelectedRelayDetail() {
   if (!pane) return;
   const srv = servers.find(s => s.name === selectedSettingsServerName) || servers[0];
   if (!srv) {
-    pane.innerHTML = '<div class="relay-edit-empty">Add a relay to configure its connection.</div>';
+    pane.innerHTML = '<div class="relay-edit-empty">Add a server to configure its connection.</div>';
     return;
   }
   selectedSettingsServerName = srv.name;
@@ -1802,6 +1843,7 @@ function renderSelectedRelayDetail() {
     <label>Port<input data-detail-f="port" type="number" min="1" max="65535" value="${escAttr(String(srv.port || 22))}"></label>
     <label>SSH key<input data-detail-f="key" value="${escAttr(srv.key || '')}" placeholder="~/.ssh/id_ed25519"></label>
     <label>Password<input data-detail-f="password" type="password" value="${escAttr(srv.password || '')}" placeholder="Optional — encrypted storage" autocomplete="new-password"></label>
+    <label>Anon instance<input data-detail-f="instance" value="${escAttr(srv.instance || '')}" placeholder="Only when one IP runs two relays" autocomplete="off"></label>
     <div class="relay-detail-actions"><button class="detail-test" type="button">Test connection</button><button class="detail-save primary" type="button">Save Relay</button></div>`;
 
   const updateDetail = (event) => {
@@ -1901,6 +1943,7 @@ function renderSettings() {
         <input data-f="port" type="hidden" value="${escAttr(s.port||22)}">
         <input data-f="key" type="hidden" value="${escAttr(s.key||'')}">
         <input data-f="password" type="hidden" value="${escAttr(s.password||'')}">
+        <input data-f="instance" type="hidden" value="${escAttr(s.instance||'')}">
       </td>
       <td><span class="server-state ${state}">${stateText}</span></td>
       <td class="server-host">${escapeHtml(hostText)}</td>
@@ -2014,10 +2057,10 @@ async function refreshLicenseStatus() {
       if (entryRow) entryRow.style.display = 'none';
       const s = await window.api.getIapStatus();
       if (s && s.purchased) {
-        row.innerHTML = '<span style="color:#4caf50;font-weight:600">✓ Unlocked — unlimited relays</span>';
+        row.innerHTML = '<span style="color:#4caf50;font-weight:600">✓ Unlocked — unlimited servers</span>';
       } else {
         const limit = info.freeRelayLimit || 3;
-        row.innerHTML = `<span style="color:#f0c040">Free tier — up to ${limit} relays monitored</span>`
+        row.innerHTML = `<span style="color:#f0c040">Free tier — up to ${limit} servers monitored</span>`
           + '<div class="hint" style="margin-top:2px">Unlock once to monitor your whole fleet.</div>'
           + '<button id="openPurchaseBtn" class="primary" style="margin-top:8px">Unlock RelayPulse</button>';
         const btn = $('#openPurchaseBtn');
@@ -2060,11 +2103,13 @@ async function refreshDemoMode() {
     // engeller), "Install HTTPS Agent on all" ise RFC 5737 belge adreslerine
     // SSH acardi.
     const demoOn = !!(r && r.enabled);
+    demoActive = demoOn;
+    updateRelayNav();
     for (const id of ['#saveServers', '#installAgentAll']) {
       const el = $(id);
       if (!el) continue;
       el.disabled = demoOn;
-      el.title = demoOn ? 'Sample fleet — turn off the demo fleet in Settings › General to edit your own relays.' : '';
+      el.title = demoOn ? 'Sample fleet — turn off the demo fleet in Settings › General to edit your own servers.' : '';
     }
     return demoOn;
   } catch { return false; }
@@ -2180,10 +2225,10 @@ $('#installAgentAll').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
   const next = collectServersFromSettingsRows();
   const isEnAll = settings.languageMode === 'en';
-  if (!next.length) return alert('No relays to install.');
+  if (!next.length) return alert('No servers to install.');
   servers = next;
   await window.api.saveServers(next);
-  if (!confirm(`Install HTTPS agent on all relays? (${next.length})`)) return;
+  if (!confirm(`Install HTTPS agent on all servers? (${next.length})`)) return;
   const oldText = btn.textContent;
   btn.textContent = '⏳ Installing...';
   btn.disabled = true;
@@ -2209,7 +2254,7 @@ $('#installAgentAll').addEventListener('click', async (e) => {
   renderCards();
   populateLogServerSelect();
   if (errors.length) alert(`HTTPS agent install partially completed.\n\n${errors.join('\n')}`);
-  else alert(`HTTPS agent installed on all relays. (${r.okCount} total)`);
+  else alert(`HTTPS agent installed on all servers. (${r.okCount} total)`);
 });
 $('#saveSettings').addEventListener('click', async () => {
   const pollMs = Math.max(30000, Number($('#pollMs').value) || 30000);
@@ -2260,8 +2305,8 @@ $('#exportPhoneBtn')?.addEventListener('click', async () => {
     const r = await window.api.exportFleetForPhone();
     if (r && r.ok) {
       if (out) out.textContent = en
-        ? `${r.count} relays written (${r.withToken} with token) → ${r.filePath}`
-        : `${r.count} relays exported (${r.withToken} with tokens) → ${r.filePath}`;
+        ? `${r.count} servers written (${r.withToken} with token) → ${r.filePath}`
+        : `${r.count} servers exported (${r.withToken} with tokens) → ${r.filePath}`;
       flash(btn, 'Exported');
     } else if (r && r.error) {
       if (out) out.textContent = 'Failed: ' + r.error;
@@ -2594,6 +2639,172 @@ if (configSel) configSel.addEventListener('change', () => {
   resetConfigEditor('server changed. Click "Load anonrc" for the new config.');
 });
 
+/* ---------- Relay family (MyFamily) ----------
+ * Restored 2026-09-23: the 5.6 cleanup (204d6a9) removed these controls with
+ * the Rewards tab, leaving buildRelayFamilyPlan / applyRelayFamilyPlan in main
+ * with nothing on screen to call them. */
+function familyLabel(name) {
+  const s = familyState.get(name);
+  return s === 'ok' ? 'OK' : s === 'outdated' ? 'Outdated' : s === 'error' ? 'Check failed' : '—';
+}
+function familyClass(name) {
+  const s = familyState.get(name);
+  return s === 'ok' ? 'ok' : s ? 'warn' : '';
+}
+let lastFamilyPlan = null;
+const shortFp = (fp) => fp ? fp.slice(0, 8) + '…' + fp.slice(-4) : '—';
+
+function renderFamilyPlan(plan) {
+  const table = $('#familyTable'), body = table && table.querySelector('tbody');
+  const removals = $('#familyRemovals');
+  if (!body) return;
+  const rows = plan.rows || [];
+  body.innerHTML = rows.map((r) => {
+    const now = r.ok ? `${(r.currentFamilyFingerprints || []).length} members` : '—';
+    const after = r.ok ? `${r.familyCount} members` +
+      ((r.addedFingerprints || []).length ? ` · +${r.addedFingerprints.length}` : '') +
+      ((r.removedFingerprints || []).length ? ` · <b class="st-warn">−${r.removedFingerprints.length}</b>` : '') : '—';
+    const status = !r.ok ? `<span class="st-err">${escapeHtml(r.error || 'read failed')}</span>`
+      : r.familyUpToDate ? '<span class="st-ok">up to date</span>' : '<span class="st-warn">will change</span>';
+    return `<tr data-name="${escapeHtml(r.name)}"><td>${escapeHtml(r.name)}</td><td class="fp" title="${escapeHtml(r.fingerprint || '')}">${escapeHtml(shortFp(r.fingerprint))}</td>
+      <td title="${escapeHtml(r.currentFamilyLine || '')}">${now}</td><td>${after}</td><td class="fam-st">${status}</td>
+      <td><button class="family-open-config" data-name="${escapeHtml(r.name)}">Config</button></td></tr>`;
+  }).join('');
+  table.style.display = '';
+
+  // Everything Apply would take out of some relay's MyFamily, with how many relays list it.
+  const removedCount = new Map();
+  for (const r of rows) for (const fp of (r.removedFingerprints || [])) removedCount.set(fp, (removedCount.get(fp) || 0) + 1);
+  if (removals) {
+    removals.style.display = removedCount.size ? '' : 'none';
+    removals.innerHTML = removedCount.size
+      ? `<b>Apply would REMOVE ${removedCount.size} fingerprint(s)</b> that are in MyFamily today but in neither the fleet nor the list above. ` +
+        `If one of them is still your relay, add it to the list and check again.<br>` +
+        [...removedCount].map(([fp, n]) => `<code>${escapeHtml(fp)}</code> (on ${n} relays)`).join('<br>')
+      : '';
+  }
+}
+
+async function checkFleetFamily() {
+  const status = $('#familyStatus');
+  const btn = $('#familyCheck');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Reading every relay over SSH…';
+  try {
+    const plan = await window.api.fetchRelayFamilyPlan();
+    lastFamilyPlan = plan && plan.ok ? plan : null;
+    if (!plan || !plan.ok) { if (status) status.textContent = (plan && plan.error) || 'Family check failed.'; return; }
+    familyState.clear();
+    for (const r of plan.rows || []) familyState.set(r.name, !r.ok ? 'error' : r.familyUpToDate ? 'ok' : 'outdated');
+    renderFamilyPlan(plan);
+    const outdated = (plan.rows || []).filter((r) => r.ok && !r.familyUpToDate).length;
+    if (status) {
+      status.textContent = plan.failedCount
+        ? `${plan.failedCount} relay(s) could not be read — fix those first; Apply refuses to write while any fails.`
+        : outdated ? `Family of ${plan.familySize}: ${outdated} relay(s) need an update.`
+        : `Family of ${plan.familySize}: every relay is up to date.`;
+    }
+    $('#familyCopy').disabled = !plan.familyLine;
+    $('#familyApply').disabled = !!plan.failedCount || !outdated;
+    for (const srv of servers) if (typeof updateCard === 'function') updateCard(srv.name);
+  } catch (e) {
+    if (status) status.textContent = 'Family check failed: ' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Live progress while Apply runs: the row being written is highlighted and
+// scrolled into view, each finished row gets a green tick or a red cross, and
+// the status line counts. Before this the panel said "Writing..." for 10-20 min.
+const famProg = { ok: 0, skip: 0, fail: 0 };
+function onFamilyProgress(p) {
+  const status = $('#familyStatus');
+  if (p.phase === 'precheck') {
+    if (status) status.textContent = `Checking ${p.index}/${p.total} before writing — nothing is written until every relay passes…`;
+    return;
+  }
+  const row = document.querySelector(`#familyTable tr[data-name="${CSS.escape(p.name)}"]`);
+  const cell = row && row.querySelector('.fam-st');
+  if (p.phase === 'writing') {
+    document.querySelectorAll('#familyTable tr.fam-active').forEach((r) => r.classList.remove('fam-active'));
+    if (row) { row.classList.add('fam-active'); row.scrollIntoView({ block: 'nearest' }); }
+    if (cell) cell.innerHTML = '<span class="st-warn">⏳ writing…</span>';
+  } else {
+    if (row) row.classList.remove('fam-active');
+    if (p.phase === 'done') { famProg.ok++; if (cell) cell.innerHTML = '<span class="st-ok">✓ written</span>'; }
+    else if (p.phase === 'skipped') { famProg.skip++; if (cell) cell.innerHTML = '<span class="st-ok">✓ already up to date</span>'; }
+    else { famProg.fail++; if (cell) cell.innerHTML = `<span class="st-err">✗ ${escapeHtml(p.error || 'failed')}</span>`; }
+  }
+  if (status) status.textContent = `Writing ${p.index}/${p.total} · ✓ ${famProg.ok + famProg.skip} · ✗ ${famProg.fail}`;
+}
+
+async function applyFleetFamily() {
+  const plan = lastFamilyPlan;
+  if (!plan) return;
+  const changing = (plan.rows || []).filter((r) => r.ok && !r.familyUpToDate);
+  const removed = new Set(changing.flatMap((r) => r.removedFingerprints || []));
+  const msg = `Write MyFamily (${plan.familySize} members) to ${changing.length} relay(s)?\n\n` +
+    `Each relay's anonrc is backed up and checked with anon --verify-config, then the relay reloads its config (a restart only where the service cannot reload).` +
+    (removed.size ? `\n\n${removed.size} fingerprint(s) will be REMOVED from MyFamily. Check the warning above first.` : '');
+  if (!confirm(msg)) return;
+  const status = $('#familyStatus');
+  $('#familyApply').disabled = true;
+  famProg.ok = famProg.skip = famProg.fail = 0;
+  if (status) status.textContent = `Writing ${changing.length} relay(s), one at a time…`;
+  const r = await window.api.applyRelayFamilyAll();
+  if (!r || !r.ok) {
+    // Keep this on screen: re-running the check here used to overwrite it with
+    // "N relays need an update", hiding why nothing was written.
+    const why = ((r && r.results) || []).filter((x) => !x.ok && !x.skipped)
+      .slice(0, 6).map((x) => `${x.name}: ${x.error}`).join(' · ');
+    if (status) status.textContent = `Stopped — ${(r && r.error) || 'write failed'} ` +
+      `(${(r && r.okCount) || 0}/${(r && r.count) || 0} written).` + (why ? ` ${why}` : '') +
+      ' Press Apply again; relays already written are skipped as up to date.';
+    $('#familyApply').disabled = false;
+    return;
+  }
+  await checkFleetFamily();
+  if (status) status.textContent = `Done: ${r.okCount}/${r.count} relays written. ` + status.textContent;
+}
+
+async function loadFamilyExtras() {
+  try {
+    const r = await window.api.getFamilyExtras();
+    const box = $('#familyExtras');
+    if (box && r && r.ok) box.value = (r.fingerprints || []).join('\n');
+  } catch {}
+}
+
+(() => {
+  const on = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', fn); };
+  on('#familyCheck', checkFleetFamily);
+  if (window.api.onFamilyProgress) window.api.onFamilyProgress(onFamilyProgress);
+  on('#familyApply', applyFleetFamily);
+  on('#familyCopy', async () => {
+    if (!lastFamilyPlan || !lastFamilyPlan.familyLine) return;
+    try { await navigator.clipboard.writeText(lastFamilyPlan.familyLine); $('#familyStatus').textContent = `Copied: MyFamily with ${lastFamilyPlan.familySize} members.`; } catch {}
+  });
+  on('#familyExtrasSave', async () => {
+    const out = $('#familyExtrasStatus');
+    const r = await window.api.setFamilyExtras($('#familyExtras').value);
+    if (out) out.textContent = r && r.ok ? `Saved (${r.fingerprints.length}). Run Check family again.` : ((r && r.error) || 'Could not save');
+    if (r && r.ok) $('#familyExtras').value = r.fingerprints.join('\n');
+  });
+  // "Config" on a row opens that relay's anonrc in the editor right below.
+  const table = $('#familyTable');
+  if (table) table.addEventListener('click', (e) => {
+    const b = e.target.closest('.family-open-config');
+    if (!b || !configSel || configBusy) return;
+    configSel.value = b.dataset.name;
+    loadAnonrcForSelected();
+    const ed = $('#configEditor');
+    if (ed) ed.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  const panel = $('#familyPanel');
+  if (panel) panel.addEventListener('toggle', () => { if (panel.open) loadFamilyExtras(); });
+})();
+
 async function saveAnonrc(restart) {
   if (!configSel || !configEditor) return;
   if (configBusy) return;
@@ -2758,17 +2969,19 @@ function renderAutoFix() {
   // Incident Policy dropdown = gizli enabled+dryRun kutularinin tek yuzu.
   const policyEl = $('#incidentPolicy');
   if (policyEl) {
+    // Oncelik sirasi main.js ile AYNI olmali: dry-run > onay > canli.
     policyEl.value = !autoFixSettings.autoFixEnabled ? 'off'
-      : autoFixSettings.autoFixDryRun ? 'dryrun' : 'auto';
-    const en = settings.languageMode === 'en';
+      : autoFixSettings.autoFixDryRun ? 'dryrun'
+        : autoFixSettings.autoFixRequireApproval ? 'approve' : 'auto';
     const opts = policyEl.options;
-    if (opts.length === 3) {
+    if (opts.length === 4) {
       opts[0].textContent = 'Fix issues automatically';
-      opts[1].textContent = 'Diagnose only (dry-run)';
-      opts[2].textContent = 'Disabled';
+      opts[1].textContent = 'Ask me before running';
+      opts[2].textContent = 'Diagnose only (dry-run)';
+      opts[3].textContent = 'Disabled';
     }
     setText('#incidentPolicyLabel', 'Incident Policy');
-    setText('#incidentPolicyHint', 'Choose when AI Auto-Fix acts. "Fix automatically" runs the chosen command on the relay. "Diagnose only" picks a command and logs it but never touches the server. "Disabled" turns the feature off.');
+    setText('#incidentPolicyHint', 'Choose when AI Auto-Fix acts. "Fix automatically" runs the chosen command on the server. "Diagnose only" picks a command and logs it but never touches the server. "Disabled" turns the feature off.');
   }
   const currentProvider = autoFixSettings.aiProvider || 'openai';
   if (providerEl) providerEl.value = currentProvider;
@@ -2833,6 +3046,7 @@ function bindAutoFixControls() {
     if (dr) dr.checked = v === 'dryrun';
     autoFixSettings.autoFixEnabled = v !== 'off';
     autoFixSettings.autoFixDryRun = v === 'dryrun';
+    autoFixSettings.autoFixRequireApproval = v === 'approve';
     refreshHeaderBadges();
   });
   const providerEl = $('#aiProvider');
@@ -3061,6 +3275,124 @@ function showSetupCheckModal(name, result) {
 
   body.innerHTML = `<ul class="setup-check-list">${checksHtml}</ul>${warnsHtml}`;
 }
+
+/* ---------- PROFIL KARTI ----------
+ * 2026-09-22: kullanici App Store kopyasini acinca filoyu bos gordu ve verisini
+ * kaybettigini sandi. Iki kopya ayni isimde, ayni ikonla, farkli userData ile
+ * calisiyor; ekranda hicbir ayirt edici bilgi yoktu. Kart Ayarlar>About'ta durur,
+ * ana ekranda ise YALNIZCA profil bos oldugunda uyari cikar — normal durumda gurultu yok.
+ */
+async function renderProfileCard() {
+  if (!window.api || !window.api.appProfile) return;
+  let p;
+  try { p = await window.api.appProfile(); } catch { return; }
+
+  const body = document.getElementById('profileCardBody');
+  if (body) {
+    const rows = [
+      ['Version', p.version],
+      ['Profile', p.sandboxed ? 'Sandboxed (App Store / TestFlight build)' : 'Standard build'],
+      ['Servers in this profile', String(p.relayCount)],
+      ['Auto-Fix', `${p.autoFixMode} · ${p.autoFixCommandCount} command(s) · ${p.aiProvider}`],
+      ['App bundle', p.appPath],
+      ['Settings file', p.userData],
+    ];
+    body.innerHTML = rows
+      .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`)
+      .join('');
+  }
+
+  const warn = document.getElementById('profileWarning');
+  if (!warn) return;
+  // The demo fleet is not in the config, so an empty profile is expected there.
+  if (p.relayCount > 0 || p.demo) { warn.style.display = 'none'; warn.innerHTML = ''; return; }
+  warn.style.display = '';
+  warn.innerHTML = p.sandboxed
+    ? `<b>This is the sandboxed build and its profile is empty.</b> macOS keeps its settings in
+       its own container, so a fleet added in the standard build is not visible here — nothing
+       has been lost. Settings file in use:<br><code>${escapeHtml(p.userData)}</code>`
+    : `<b>No servers in this profile yet.</b> Add one under Settings &rsaquo; Server Connections.
+       Settings file in use:<br><code>${escapeHtml(p.userData)}</code>`;
+}
+
+
+/* ---------- ONAY KUYRUGU (Safe Actions) ----------
+ * "Ask me before running" modunda AI komutu secer ama CALISTIRMAZ; oneri burada
+ * kanitiyla birlikte bekler. Kanit gosterilmesi kasitli: operator "neden bu komut?"
+ * diye log kurcalamadan karar verebilmeli. Oneriler 30 dakikada bir suresi dolar —
+ * eski bir oneriyi onaylamak, durumu degismis bir kutuya mudahale etmek olurdu.
+ */
+function approvalEvidenceChips(ev) {
+  if (!ev || typeof ev !== 'object') return '';
+  const chips = [];
+  if (ev.issueKind) chips.push(['kind', ev.issueKind]);
+  if (ev.state) chips.push(['state', ev.state]);
+  if (ev.anon) chips.push(['anon', ev.anon]);
+  chips.push(['ports', String(ev.ports || 0)]);
+  chips.push(['agent', ev.agentAnswered ? 'answered' : 'no answer']);
+  return chips
+    .map(([k, v]) => `<span class="approval-chip"><b>${escapeHtml(k)}</b> ${escapeHtml(v)}</span>`)
+    .join('');
+}
+
+async function renderApprovalQueue() {
+  if (!window.api || !window.api.autoFixPending) return;
+  const panel = document.getElementById('approvalPanel');
+  const list = document.getElementById('approvalList');
+  if (!panel || !list) return;
+  let items = [];
+  try { items = await window.api.autoFixPending(); } catch { return; }
+  if (!Array.isArray(items) || !items.length) {
+    panel.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+  panel.style.display = '';
+  list.innerHTML = items.map((a) => {
+    const age = Math.max(0, Math.round((Date.now() - a.createdAt) / 60000));
+    return `<div class="approval-item" data-id="${escAttr(a.id)}">
+      <div class="approval-item-head">
+        <b>${escapeHtml(a.name)}</b>
+        <span class="approval-cmd">${escapeHtml(a.commandName || 'command')}</span>
+        <span class="approval-age">${age} min ago</span>
+      </div>
+      ${a.reason ? `<div class="approval-reason">${escapeHtml(a.reason)}</div>` : ''}
+      <div class="approval-evidence">${approvalEvidenceChips(a.evidence)}</div>
+      ${a.evidence && a.evidence.error ? `<div class="approval-error">${escapeHtml(a.evidence.error)}</div>` : ''}
+      <pre class="approval-command">${escapeHtml(a.command || '')}</pre>
+      <div class="approval-actions">
+        <button class="approve" data-act="approve">Approve &amp; run</button>
+        <button class="reject" data-act="reject">Reject</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+(function bindApprovalQueue() {
+  const wire = () => {
+    const list = document.getElementById('approvalList');
+    if (!list || list.dataset.bound) return;
+    list.dataset.bound = '1';
+    list.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const item = btn.closest('.approval-item');
+      const id = item && item.dataset.id;
+      if (!id) return;
+      btn.disabled = true;
+      try {
+        if (btn.dataset.act === 'approve') await window.api.autoFixApprove(id);
+        else await window.api.autoFixReject(id);
+      } catch {}
+      renderApprovalQueue().catch(() => {});
+    });
+  };
+  const tick = () => { wire(); renderApprovalQueue().catch(() => {}); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tick);
+  else tick();
+  setInterval(tick, 20000);
+})();
+
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function escAttr(s) { return escapeHtml(s); }
 function cssEscape(s) { return String(s).replace(/"/g, '\\"'); }
@@ -3073,4 +3405,14 @@ function cssEscape(s) { return String(s).replace(/"/g, '\\"'); }
   // Ag verisi kendi dongusunde: fingerprint'ler SSH ile gec doldugu icin sik denenir
   setInterval(loadRelayNetworkStats, 5 * 60 * 1000);
   setTimeout(loadRelayNetworkStats, 30 * 1000);
+})();
+
+// Profil karti: acilista ve ayarlar kaydedildikten sonra tazelenir.
+(function () {
+  const paint = () => { renderProfileCard().catch(() => {}); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', paint);
+  else paint();
+  document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'subtabAbout') setTimeout(paint, 0);
+  });
 })();

@@ -1,6 +1,6 @@
 {
   "name": "relaypulse",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "description": "SSH monitoring and AI auto-fix for relay and exit nodes",
   "homepage": "https://barisadiy1974-hub.github.io/relaypulse/",
   "main": "main.js",

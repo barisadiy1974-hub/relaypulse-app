@@ -89,16 +89,74 @@ function buildWatchPrefix(cfg) {
   return lines.length ? lines.join('\n') + '\n' : '';
 }
 
+// Ayni IP'de birden fazla relay calisiyorsa (tek IP, iki anon instance) asagidaki
+// IP eslemesi ikisini AYIRT EDEMEZ — iki kayit da ayni anonrc'ye duser. Sunucu
+// kaydinda instance adi verilmisse betige ANON_INSTANCE olarak gecirilir ve
+// eslestirme dogrudan o instance uzerinden yapilir.
+function buildInstancePrefix(server) {
+  const name = String(server && server.instance ? server.instance : '').trim();
+  if (!name || !/^[A-Za-z0-9._-]+$/.test(name)) return '';
+  return `ANON_INSTANCE='${name}'\n`;
+}
+
+// Picks this relay's anonrc, and on multi-instance boxes its unit, for every
+// command that reads or writes the config (editor, wallet binding, health
+// check). Same rule as auditRelay: the instance field wins over the IP match.
+// BUG FIX (2026-09-23): these matched only "Address <ip>", and two relays on
+// one IP carry the same Address line, so the second relay (anonrc-2) got
+// anonrc-1 — the editor showed and saved the wrong relay's config, a wallet
+// bound to it went into the other relay, and a family apply would have
+// restarted the wrong service.
+const PICK_ANONRC = `ANONRC=""
+ANON_UNIT=""
+LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
+AI_NUM=""
+case "$ANON_INSTANCE" in
+  anon[0-9]|anon[0-9][0-9]) AI_NUM=\${ANON_INSTANCE#anon} ;;
+  [0-9]|[0-9][0-9]) AI_NUM=$ANON_INSTANCE ;;
+esac
+if [ -n "$AI_NUM" ] && [ -f "/etc/anon/anonrc-$AI_NUM" ]; then
+  ANONRC="/etc/anon/anonrc-$AI_NUM"; ANON_UNIT="anon$AI_NUM.service"
+elif [ -n "$ANON_INSTANCE" ] && [ -f "/etc/anon/instances/$ANON_INSTANCE/anonrc" ]; then
+  ANONRC="/etc/anon/instances/$ANON_INSTANCE/anonrc"; ANON_UNIT="anon@$ANON_INSTANCE.service"
+fi
+if [ -z "$ANONRC" ] && [ -n "$LOCAL_IP" ]; then
+  for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
+    [ -f "$rc" ] || continue
+    grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null && ANONRC="$rc" && break
+  done
+fi
+`;
+
 const REMOTE_SCRIPT = `
 # Some hosts run the remote command under /bin/sh where "set -o pipefail"
 # is unsupported and can terminate the whole script. Probe safely first.
 (set -o pipefail) >/dev/null 2>&1 && set -o pipefail || true
+# instance verilmisse bu relay'in KENDI ORPort'lari; asagida hem baglanti sayimi
+# hem port listesi bununla daraltilir (ayni kutudaki iki relay ayrissin diye).
+INST_RC=""
+case "$ANON_INSTANCE" in
+  anon[0-9]|anon[0-9][0-9]) _n=\${ANON_INSTANCE#anon} ;;
+  [0-9]|[0-9][0-9]) _n=$ANON_INSTANCE ;;
+  *) _n="" ;;
+esac
+if [ -n "$_n" ] && [ -f "/etc/anon/anonrc-$_n" ]; then INST_RC="/etc/anon/anonrc-$_n"
+elif [ -n "$ANON_INSTANCE" ] && [ -f "/etc/anon/instances/$ANON_INSTANCE/anonrc" ]; then INST_RC="/etc/anon/instances/$ANON_INSTANCE/anonrc"
+fi
+INST_ORPORTS=""
+if [ -n "$INST_RC" ]; then
+  INST_ORPORTS=$(awk '$1=="ORPort" { p=$2; sub(/^.*:/,"",p); if (p ~ /^[0-9]+$/) printf "%s|", p }' "$INST_RC" | sed 's/|$//')
+fi
 echo '===IFACE==='
 ip route 2>/dev/null | awk '/^default/ {print $5; exit}'
 echo '===NETDEV==='
 cat /proc/net/dev
 echo '===CONN==='
-ss -tn state established 2>/dev/null | tail -n +2 | wc -l
+if [ -n "$INST_ORPORTS" ]; then
+  ss -tn state established 2>/dev/null | tail -n +2 | awk '{print $3}' | grep -E ":($INST_ORPORTS)$" | wc -l
+else
+  ss -tn state established 2>/dev/null | tail -n +2 | wc -l
+fi
 echo '===MEM==='
 awk '/^MemTotal|^MemAvailable/ {print $1, $2}' /proc/meminfo
 echo '===LOAD==='
@@ -114,7 +172,32 @@ echo '===ANON==='
 LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
 # Try to find matching anonrc by Address field for multi-instance setups
 MATCHED_ANONRC=""
-if [ -n "$LOCAL_IP" ]; then
+# Sunucu kaydinda instance adi varsa IP eslemesine hic bakma: ayni IP'de iki
+# relay oldugunda IP ayirt edici degildir.
+ANON_INSTANCE_OK=""
+ANON_INSTANCE_SVC=""
+# Iki kurulum tipi destekleniyor:
+#   "relay2" -> /etc/anon/instances/relay2/anonrc + anon@relay2
+#   "2" veya "anon2" -> /etc/anon/anonrc-2 + anon2   (numarali unit tipi)
+ANON_INSTANCE_NUM=""
+case "$ANON_INSTANCE" in
+  anon[0-9]|anon[0-9][0-9]) ANON_INSTANCE_NUM=\${ANON_INSTANCE#anon} ;;
+  [0-9]|[0-9][0-9]) ANON_INSTANCE_NUM=$ANON_INSTANCE ;;
+esac
+if [ -n "$ANON_INSTANCE_NUM" ] && [ -f "/etc/anon/anonrc-$ANON_INSTANCE_NUM" ]; then
+  MATCHED_ANONRC="/etc/anon/anonrc-$ANON_INSTANCE_NUM"
+  ANON_INSTANCE_SVC="anon$ANON_INSTANCE_NUM"
+  ANON_INSTANCE_OK=1
+elif [ -n "$ANON_INSTANCE" ] && [ -f "/etc/anon/instances/$ANON_INSTANCE/anonrc" ]; then
+  MATCHED_ANONRC="/etc/anon/instances/$ANON_INSTANCE/anonrc"
+  ANON_INSTANCE_SVC="anon@$ANON_INSTANCE"
+  ANON_INSTANCE_OK=1
+elif [ -n "$ANON_INSTANCE" ]; then
+  # Yanlis yazilmis / silinmis instance: relay'i sahte sekilde "offline" gosterme,
+  # eski IP eslemesine dus ve durumu gorunur kil.
+  echo "ANON_INSTANCE_MISSING=$ANON_INSTANCE"
+fi
+if [ -z "$MATCHED_ANONRC" ] && [ -n "$LOCAL_IP" ]; then
   for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
     [ -f "$rc" ] || continue
     if grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null; then
@@ -131,12 +214,19 @@ fi
 # multi-instance units (name@SOMETHING) and numbered units (name1, name2 ...),
 # which is how one machine can run several copies of the same service.
 DYN_SVCS=""
+# instance verilmisse kardes instance'i secmesin diye liste tek unit'e daraltilir
+if [ -n "$ANON_INSTANCE_OK" ]; then
+  WATCH_SVCS="$ANON_INSTANCE_SVC"
+fi
 for base in $WATCH_SVCS; do
   case "$base" in *@*) continue;; esac
   DYN_SVCS="$DYN_SVCS $(systemctl list-units --state=active,activating,failed --no-legend --plain "\${base}@*" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
   DYN_SVCS="$DYN_SVCS $(systemctl list-units --state=active,activating,failed --no-legend --plain "\${base}[0-9]*.service" 2>/dev/null | awk '{print $1}' | tr '\n' ' ')"
 done
 for svc in $DYN_SVCS $WATCH_SVCS; do
+  # A unit that does not exist still prints "inactive"; without this skip every
+  # server lacking the default relay units showed as a broken service.
+  case "$(systemctl show -p LoadState --value "$svc" 2>/dev/null)" in ''|not-found|masked) continue;; esac
   s=$(systemctl is-active "$svc" 2>/dev/null || true)
   [ -n "$s" ] && echo "$svc=$s"
 done
@@ -146,7 +236,24 @@ if [ -n "$MATCHED_ANONRC" ]; then
   grep '^Nickname' "$MATCHED_ANONRC" 2>/dev/null | head -1 | awk '{print "INSTANCE_NICKNAME="$2}'
 fi
 # Fallback detection: a configured port being listened on also means "alive".
-ss -tnlp 2>/dev/null | grep -E ":($WATCH_PORTS_RE)" | awk '{print $4}' | sort -u | tr '\\n' ',' || true
+# Ayni kutuda iki relay varsa ss ciktisi HOST genelidir — instance verilmisse
+# yalnizca O relay'in kendi anonrc'sindeki portlar gosterilir, yoksa 2. relay'in
+# kartinda 1. relay'in portlari gorunuyor.
+PORT_RE="$WATCH_PORTS_RE"
+if [ -n "$MATCHED_ANONRC" ]; then
+  KENDI=$(awk '$1=="ORPort" || $1=="DirPort" || $1=="ControlPort" {
+      p=$2; sub(/^.*:/,"",p); if (p ~ /^[0-9]+$/) printf "%s|", p }' "$MATCHED_ANONRC" | sed 's/|$//')
+  [ -n "$KENDI" ] && PORT_RE="$KENDI"
+fi
+# -u eklendi (2026-09-23): eskiden yalnizca TCP'ye bakiliyordu. Anyone relay'i icin
+# yeterliydi (ORPort TCP) ama "izlenecek portlar" ayari kullaniciya ait: WireGuard
+# 51820/udp, DNS 53/udp, oyun/VoIP sunuculari UDP dinler ve hicbiri "ayakta"
+# sayilmiyordu. UDP soketleri LISTEN yerine UNCONN gorunur, -l ikisini de listeler.
+# BUG FIX (2026-09-23): -u, ss ciktisinin basina bir Netid sutunu ekler; sabit
+# '{print $4}' o gunden beri adres yerine Send-Q sayacini okuyordu. Yerel adres
+# artik ":<rakam>" ile biten ILK alan (peer sutunu ":*" ile biter) ve port TAM
+# eslesir — eski grep ":22" ile ":2222"yi de yakaliyordu.
+ss -tunlp 2>/dev/null | awk -v re="^($PORT_RE)$" '{for(i=1;i<=NF;i++) if ($i ~ /:[0-9]+$/) {n=split($i,a,":"); if (a[n] ~ re) print $i; break}}' | sort -u | tr '\\n' ',' || true
 echo
 echo '===UPTIME==='
 uptime -p 2>/dev/null || uptime
@@ -961,7 +1068,11 @@ class Monitor extends EventEmitter {
       // retry once. If the retry also fails, fall back to SSH polling so the
       // card stays online.
       let agentTokenFailed = false;
-      if (server.agentEnabled && this.connectionMode !== 'ssh') {
+      // Agent host duzeyinde rapor veriyor: ayni kutudaki iki anon instance'ini
+      // AYIRT EDEMEZ (systemctl is-active listesi + dinlenen portlar, hepsi ortak).
+      // instance verilmis kayitlar bu yuzden her zaman SSH yolundan gider —
+      // REMOTE_SCRIPT orada dogru instance'in anonrc'sini ve unit'ini okuyor.
+      if (server.agentEnabled && this.connectionMode !== 'ssh' && !String(server.instance || '').trim()) {
         const applyAgent = (d) => {
           iface = d.iface || null;
           net = d.net || null;
@@ -1019,7 +1130,11 @@ class Monitor extends EventEmitter {
       // agentEnabled=true olan sunucularda hem agent yolu (mode!=='ssh' false) hem de
       // bu SSH yolu (!agentEnabled false) atlaniyordu → hicbir veri pollanmiyor, anon
       // undefined kaliyor ve anon-inactive auto-fix tetiklenemiyordu.
-      if (this.connectionMode === 'ssh' || !server.agentEnabled || agentTokenFailed) {
+      // `instance` verilmis kayitlar agent yolundan gecmiyor (agent iki instance'i
+      // ayirt edemez). O kayitlar icin SSH yolu ZORUNLU — yoksa yukaridaki agent
+      // blogu da burasi da atlanir ve hicbir veri toplanmaz (kart bos kalir).
+      const _instansli = !!String(server.instance || '').trim();
+      if (this.connectionMode === 'ssh' || !server.agentEnabled || agentTokenFailed || _instansli) {
         // With ControlMaster, all polls after the first one are cheap (no
         // handshake), so the worst case is the initial master setup. Give it
         // up to ~40s to tolerate slow / momentarily busy VPSes (multi-instance
@@ -1030,14 +1145,14 @@ class Monitor extends EventEmitter {
           : Math.max(12000, Math.min(40000, this.pollMs * 2));
         let stdout;
         try {
-          stdout = await runSsh(server, this.watchPrefix + REMOTE_SCRIPT, sshTimeout);
+          stdout = await runSsh(server, buildInstancePrefix(server) + this.watchPrefix + REMOTE_SCRIPT, sshTimeout);
         } catch (firstErr) {
           const msg = (firstErr && firstErr.message) || '';
           const transient = isTransientSshError(msg);
           if (!transient) throw firstErr;
           await new Promise(r => setTimeout(r, 500));
           try {
-            stdout = await runSsh(server, this.watchPrefix + REMOTE_SCRIPT, sshTimeout);
+            stdout = await runSsh(server, buildInstancePrefix(server) + this.watchPrefix + REMOTE_SCRIPT, sshTimeout);
           } catch (secondErr) {
             const secondMsg = (secondErr && secondErr.message) || '';
             if (!isTransientSshError(secondMsg)) throw secondErr;
@@ -1182,7 +1297,8 @@ class Monitor extends EventEmitter {
 
     if (this._networkSuspectUntil && now < this._networkSuspectUntil) return true;
 
-    const distinct = new Set(this._recentFails.map(f => f.name)).size;
+    const failing = [...new Set(this._recentFails.map(f => f.name))];
+    const distinct = failing.length;
     // Iki kural: kucuk filoda "hepsi birden", buyuk filoda "onda biri".
     // Musterinin 3 sunucusu varsa eski 5 esigi hic devreye girmiyordu; WiFi
     // kopunca ucu de kirmiziya donup alarm veriyordu.
@@ -1190,11 +1306,62 @@ class Monitor extends EventEmitter {
     const threshold = Math.max(5, Math.ceil(total * 0.10));
     const allDown = total >= 2 && distinct >= total;
     if (allDown || (total >= 5 && distinct >= threshold)) {
+      // 2026-09-22: toplu hata her zaman "bizim agimiz bozuk" demek DEGIL.
+      // Bir saglayici node'u coktugunde (ornek: bir saglayici node'unun disk
+      // arizasi) o node'daki relay'lerin hepsi ayni anda duser ve buyuk bir filoda
+      // %10 esigini rahatca gecer — eski kod bunu yerel ag sanip alarmi susturuyordu,
+      // yani GERCEK kesintide hic haber alinmiyordu.
+      // Ayirt edici: yerel ag arizasi relay'leri saglayicidan bagimsiz RASTGELE
+      // vurur; saglayici olayi tek /24'te toplanir.
+      const cluster = this._failureCluster(failing);
+      if (cluster) {
+        if (!this._lastProviderIncidentAt || now - this._lastProviderIncidentAt > windowMs) {
+          this._lastProviderIncidentAt = now;
+          this._logDebug(`PROVIDER INCIDENT: ${cluster.count}/${distinct} cevapsiz relay ${cluster.subnet}.0/24 icinde — saglayici/node kaynakli gorunuyor, alarmlar BASTIRILMADI`);
+        }
+        return false;   // gercek kesinti: normal alarm yolu islesin
+      }
       this._networkSuspectUntil = now + windowMs;
       this._logDebug(`NETWORK SUSPECT: ${distinct}/${this.servers.length} relay aynı anda cevapsız — alarmlar ${Math.round(windowMs / 1000)}s bastırıldı`);
       return true;
     }
     return false;
+  }
+
+  /// Bir IPv4 adresinin /24 oneki; hostname ya da IPv6 icin null.
+  _subnetOf(host) {
+    const m = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(String(host || '').trim());
+    return m ? m[1] : null;
+  }
+
+  /// Cevapsiz relay'ler tek bir /24'te mi toplaniyor?
+  ///
+  /// Doner: { subnet, count } ya da null. "Toplanmis" sayilmasi icin cevapsizlarin
+  /// en az %80'i ayni /24'te olmali VE o subnet'te birden fazla relay bulunmali —
+  /// tek relayli bir subnet zaten kumelenme kaniti degil.
+  /// allDown durumunda kumelenme aranmaz: filonun TAMAMI dusmusse (bu filoda
+  /// neredeyse hepsi ayni saglayicida) yerel ag daha olasi ve alarm firtinasindan
+  /// kacinmak daha degerli.
+  _failureCluster(failingNames) {
+    if (!Array.isArray(failingNames) || failingNames.length < 2) return null;
+    if (failingNames.length >= this.servers.length) return null;   // allDown -> yerel ag
+    const byName = new Map(this.servers.map(s => [s.name, s]));
+    const counts = new Map();
+    let known = 0;
+    for (const n of failingNames) {
+      const sub = this._subnetOf((byName.get(n) || {}).host);
+      if (!sub) continue;
+      known++;
+      counts.set(sub, (counts.get(sub) || 0) + 1);
+    }
+    if (!known) return null;
+    let best = null;
+    for (const [subnet, count] of counts) {
+      if (!best || count > best.count) best = { subnet, count };
+    }
+    if (!best || best.count < 2) return null;
+    if (best.count / known < 0.8) return null;
+    return best;
   }
   _emitAggregate() {
     let online = 0, rx = 0, tx = 0;
@@ -1261,10 +1428,21 @@ class Monitor extends EventEmitter {
 
   async auditRelay(server) {
     try {
-      const cmd = `ANONRC=""
+      const cmd = buildInstancePrefix(server) + `ANONRC=""
 LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
+# Sunucu kaydinda instance adi varsa once onu kullan (ayni IP'de iki relay)
+AI_NUM=""
+case "$ANON_INSTANCE" in
+  anon[0-9]|anon[0-9][0-9]) AI_NUM=\${ANON_INSTANCE#anon} ;;
+  [0-9]|[0-9][0-9]) AI_NUM=$ANON_INSTANCE ;;
+esac
+if [ -n "$AI_NUM" ] && [ -f "/etc/anon/anonrc-$AI_NUM" ]; then
+  ANONRC="/etc/anon/anonrc-$AI_NUM"
+elif [ -n "$ANON_INSTANCE" ] && [ -f "/etc/anon/instances/$ANON_INSTANCE/anonrc" ]; then
+  ANONRC="/etc/anon/instances/$ANON_INSTANCE/anonrc"
+fi
 # Try IP-matched anonrc first (multi-instance servers)
-if [ -n "$LOCAL_IP" ]; then
+if [ -z "$ANONRC" ] && [ -n "$LOCAL_IP" ]; then
   for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
     [ -f "$rc" ] || continue
     if grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null; then
@@ -1301,7 +1479,13 @@ elif [ -x /usr/bin/anon ]; then
 fi
 MULTI_SVCS2=$(systemctl list-units --state=active,activating,failed --no-legend --plain 'anon@*' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
 NAMED_SVCS2=$(systemctl list-units --state=active,activating,failed --no-legend --plain 'anon[0-9]*.service' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+if [ -n "$AI_NUM" ] && [ -f "/etc/anon/anonrc-$AI_NUM" ]; then
+  MULTI_SVCS2="anon$AI_NUM.service"; NAMED_SVCS2=""
+elif [ -n "$ANON_INSTANCE" ] && [ -f "/etc/anon/instances/$ANON_INSTANCE/anonrc" ]; then
+  MULTI_SVCS2="anon@$ANON_INSTANCE.service"; NAMED_SVCS2=""
+fi
 for svc in $MULTI_SVCS2 $NAMED_SVCS2 anon.service anon anon@default anyone anyone-relay tor-anon; do
+  case "$(systemctl show -p LoadState --value "$svc" 2>/dev/null)" in ''|not-found|masked) continue;; esac
   s=$(systemctl is-active "$svc" 2>/dev/null || true)
   [ -n "$s" ] && echo "SERVICE=$svc:$s" && break
 done`;
@@ -1328,17 +1512,9 @@ done`;
       return { ok: false, error: 'Invalid wallet address. It must be 42 characters and start with 0x.' };
     }
     try {
-      const cmd = `set -e
+      const cmd = buildInstancePrefix(server) + `set -e
 WALLET="${wallet}"
-LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
-ANONRC=""
-if [ -n "$LOCAL_IP" ]; then
-  for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
-    [ -f "$rc" ] || continue
-    grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null && ANONRC="$rc" && break
-  done
-fi
-if [ -z "$ANONRC" ]; then
+${PICK_ANONRC}if [ -z "$ANONRC" ]; then
   for p in /etc/anon/anonrc /usr/local/etc/anon/anonrc /etc/tor/torrc; do
     [ -f "$p" ] && ANONRC="$p" && break
   done
@@ -1386,16 +1562,8 @@ grep '^ContactInfo ' "$ANONRC" || true`;
   async readAnonrc(server) {
     // Wrap in subshell so `exit` doesn't terminate the parent interactive shell
     // when this runs via runSshPasswordViaPrompt (password-auth servers).
-    const cmd = `(set -e
-LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
-ANONRC=""
-if [ -n "$LOCAL_IP" ]; then
-  for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
-    [ -f "$rc" ] || continue
-    grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null && ANONRC="$rc" && break
-  done
-fi
-if [ -z "$ANONRC" ]; then
+    const cmd = buildInstancePrefix(server) + `(set -e
+${PICK_ANONRC}if [ -z "$ANONRC" ]; then
   for p in /etc/anon/anonrc /usr/local/etc/anon/anonrc /etc/tor/torrc; do
     [ -f "$p" ] && ANONRC="$p" && break
   done
@@ -1428,7 +1596,9 @@ printf '\n===ANONRC_END===\n')`;
   //
   // Returns { ok, path, verify, restarted, output }.
   async writeAnonrc(server, content, opts = {}) {
-    const { restart = true, verify = true } = opts;
+    // reload: re-read the config without a restart where the unit supports it
+    // (keeps relay uptime); units without ExecReload (anon1/anon2) fall back to restart.
+    const { restart = true, verify = true, reload = false } = opts;
     // Güvenlik tabanı: boş/çok kısa ya da temel yönergesi olmayan içerik canlı
     // anonrc'yi ezip relay'i kimliksiz (Nickname/ORPort/Address/MyFamily'siz)
     // restart ettirebilir. Renderer'da kontrol var ama applyPreset/applyExitPorts
@@ -1438,16 +1608,8 @@ printf '\n===ANONRC_END===\n')`;
       return { ok: false, error: 'Invalid anonrc content (too short or missing ORPort/Nickname) — write cancelled' };
     }
     const b64 = Buffer.from(body, 'utf8').toString('base64');
-    const cmd = `(set -e
-LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
-ANONRC=""
-if [ -n "$LOCAL_IP" ]; then
-  for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
-    [ -f "$rc" ] || continue
-    grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null && ANONRC="$rc" && break
-  done
-fi
-if [ -z "$ANONRC" ]; then
+    const cmd = buildInstancePrefix(server) + `(set -e
+${PICK_ANONRC}if [ -z "$ANONRC" ]; then
   for p in /etc/anon/anonrc /usr/local/etc/anon/anonrc /etc/tor/torrc; do
     [ -f "$p" ] && ANONRC="$p" && break
   done
@@ -1463,7 +1625,16 @@ chown --reference "$ANONRC.bak" "$ANONRC" 2>/dev/null || true
 chmod --reference "$ANONRC.bak" "$ANONRC" 2>/dev/null || true
 VERIFY=skipped
 ${verify ? `if command -v anon >/dev/null 2>&1; then
-  if ! anon -f "$ANONRC" --verify-config >/tmp/anyone-anonrc-verify.log 2>&1; then
+  # Verify as the user that owns the DataDirectory. Run as root against a data
+  # dir owned by debian-anon, anon warns "not owned by this user" and then
+  # aborts (exit 134, munmap_chunk) - a valid config read as broken, the .bak
+  # restored, and the write lost. Measured 2026-09-24 on the anon1/anon2 host:
+  # root -> 134, debian-anon -> "Configuration was valid".
+  RC_DD=$(awk '/^DataDirectory/{print $2; exit}' "$ANONRC")
+  RC_OWNER=$([ -n "$RC_DD" ] && stat -c %U "$RC_DD" 2>/dev/null || echo root)
+  AS_OWNER=""
+  if [ -n "$RC_OWNER" ] && [ "$RC_OWNER" != root ] && command -v runuser >/dev/null 2>&1; then AS_OWNER="runuser -u $RC_OWNER --"; fi
+  if ! $AS_OWNER anon -f "$ANONRC" --verify-config >/tmp/anyone-anonrc-verify.log 2>&1; then
     if grep -qiE 'User has not agreed to the terms|Not agreed to terms|/root/\\.anon/anons\\.tmp|No such file or directory' /tmp/anyone-anonrc-verify.log 2>/dev/null; then
       VERIFY=skipped_terms
     else
@@ -1480,9 +1651,11 @@ fi` : ''}
 RESTARTED=none
 ${restart ? `MULTI_SVCS4=$(systemctl list-units --state=active,activating,failed --no-legend --plain 'anon@*' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
 NAMED_SVCS4=$(systemctl list-units --state=active,activating,failed --no-legend --plain 'anon[0-9]*.service' 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
-for svc in $MULTI_SVCS4 $NAMED_SVCS4 anon.service anon anon@default anyone anyone-relay tor-anon; do
+SVC_LIST="$ANON_UNIT"
+[ -n "$SVC_LIST" ] || SVC_LIST="$MULTI_SVCS4 $NAMED_SVCS4 anon.service anon anon@default anyone anyone-relay tor-anon"
+for svc in $SVC_LIST; do
   if systemctl status "$svc" >/dev/null 2>&1; then
-    systemctl restart "$svc"
+    ${reload ? `systemctl reload "$svc" 2>/dev/null || systemctl restart "$svc"` : `systemctl restart "$svc"`}
     RESTARTED="$svc"
     break
   fi
@@ -1547,16 +1720,8 @@ echo "DONE"`;
   }
 
   async setupHealthCheck(server) {
-    const cmd = `
-LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
-ANONRC=""
-if [ -n "$LOCAL_IP" ]; then
-  for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
-    [ -f "$rc" ] || continue
-    grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null && ANONRC="$rc" && break
-  done
-fi
-if [ -z "$ANONRC" ]; then
+    const cmd = buildInstancePrefix(server) + `
+${PICK_ANONRC}if [ -z "$ANONRC" ]; then
   for p in /etc/anon/anonrc /usr/local/etc/anon/anonrc /etc/tor/torrc; do
     [ -f "$p" ] && ANONRC="$p" && break
   done

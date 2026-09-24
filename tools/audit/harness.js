@@ -4,7 +4,7 @@ const path = require('path'), fs = require('fs'), os = require('os');
 // Depo koku: tools/audit/ -> ../..  (CI'da da, elde de ayni)
 const ROOT = process.argv[2] || path.resolve(__dirname, '..', '..');
 
-const captured = { handlers: {}, windows: [], shellOpens: [], notifications: [] };
+const captured = { handlers: {}, windows: [], shellOpens: [], notifications: [], appEvents: {} };
 const noop = () => {};
 function fnProxy(name) {
   return new Proxy(function () {}, {
@@ -36,7 +36,8 @@ const electronStub = {
   app: {
     getPath: (k) => (k === 'userData' ? tmpUserData : os.tmpdir()),
     getVersion: () => require(path.join(ROOT, 'package.json')).version, getName: () => 'RelayPulse', getLocale: () => 'en-US',
-    whenReady: () => new Promise(() => {}), on: noop, once: noop, quit: noop,
+    whenReady: () => new Promise(() => {}), once: noop, quit: noop,
+    on: (ev, fn) => { (captured.appEvents[ev] = captured.appEvents[ev] || []).push(fn); },
     isPackaged: false, setLoginItemSettings: noop, getLoginItemSettings: () => ({}),
     requestSingleInstanceLock: () => true, relaunch: noop, exit: noop, dock: { setBadge: noop, setIcon: noop },
     setAboutPanelOptions: noop, commandLine: { appendSwitch: noop },

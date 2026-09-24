@@ -19,7 +19,6 @@
       <span id="languageModeBadge" class="top-badge subtle">EN</span>
       <span id="autoFixModeBadge" class="top-badge subtle">Auto-Fix: Off</span>
       <span id="lastHourBadge" class="top-badge subtle">Last 1h: —</span>
-      <span id="tokenPriceBadge" class="top-badge" style="display:none">ANYONE $—</span>
       <span id="agg" class="agg">—</span>
       <button id="hideBtn" title="Hide">✕</button>
     </div>
@@ -35,7 +34,7 @@
         </div>
       </div>
       <nav class="tabs sidebar-tabs">
-        <button data-tab="dashboard" class="active"><span id="navDashboard">Relays</span><span id="sidebarRelayCount" class="nav-count">0</span></button>
+        <button data-tab="dashboard" class="active"><span id="navDashboard">Servers</span><span id="sidebarRelayCount" class="nav-count">0</span></button>
         <button data-tab="terminal"><span>Terminal</span></button>
         <button data-tab="nyx"><span>Nyx</span></button>
         <button data-tab="htop"><span>Htop</span></button>
@@ -57,7 +56,7 @@
         <div class="dashboard-command-copy">
           <div class="dashboard-eyebrow"><span></span> RELAYPULSE</div>
           <h1>Fleet Health</h1>
-          <p>Live relay status, connections, and network traffic.</p>
+          <p>Live server status, services, connections and traffic.</p>
         </div>
         <div class="dashboard-command-status"><span class="live-dot"></span> LIVE MONITORING</div>
       </div>
@@ -67,7 +66,7 @@
             <div class="relay-toolbar-left">
               <label class="relay-search">
                 <span>🔎</span>
-                <input id="relaySearch" type="text" placeholder="Search relays...">
+                <input id="relaySearch" type="text" placeholder="Search servers...">
               </label>
               <select id="relayStateFilter">
                 <option value="all">All</option>
@@ -101,6 +100,10 @@
               <div id="fleetAlertList" class="fleet-alert-list"><div class="fleet-alert-empty">Waiting for scan results…</div></div>
             </section>
             <div class="dashboard-ai-stack">
+              <div id="approvalPanel" class="approval-panel" style="display:none">
+                <div class="approval-panel-head">Waiting for your approval</div>
+                <div id="approvalList"></div>
+              </div>
               <div id="dashboardAutoFixLastLog" class="ai-log-indicator empty">AI log: nothing yet</div>
               <div class="ai-log-panel" aria-label="AI Auto-Fix log">
                 <div class="ai-log-panel-head">
@@ -111,10 +114,11 @@
               </div>
             </div>
           </aside>
-          <div class="relay-section-heading"><div><span class="dashboard-eyebrow"><span></span> RELAYS</span><h2>Relay Fleet</h2></div><p>Live SSH, Anon, and traffic data.</p></div>
+          <div id="profileWarning" class="profile-warning" style="display:none"></div>
+          <div class="relay-section-heading"><div><span class="dashboard-eyebrow"><span></span> SERVERS</span><h2>Server Fleet</h2></div><p>Live SSH, service and traffic data.</p></div>
           <div class="relay-table-head" aria-hidden="true">
             <span id="headStatus">Status</span>
-            <span id="headRelayName">Relay Name</span>
+            <span id="headRelayName">Server Name</span>
             <span id="headBand">Band (RX / TX)</span>
             <span>CPU</span>
             <span>RAM</span>
@@ -212,6 +216,35 @@
         <b>Apply preset to ALL</b> applies the same setting to all servers (careful: cannot be undone).
       </p>
 
+      <details id="familyPanel" class="family-panel">
+        <summary>Relay family (MyFamily) — check, preview, apply</summary>
+        <div class="family-body">
+          <p class="hint">Reads every relay's fingerprint and current <code>MyFamily</code> line over SSH, then
+            shows what each relay's line should be. Nothing is written until you press <b>Apply Family All</b>,
+            and that stops without writing anything if even one relay cannot be read.</p>
+          <div class="family-actions">
+            <button id="familyCheck" class="primary">Check family</button>
+            <button id="familyCopy" disabled>Copy MyFamily</button>
+            <button id="familyApply" class="danger" disabled>Apply Family All</button>
+            <span id="familyStatus" class="hint">Not checked yet.</span>
+          </div>
+          <label class="family-extras">
+            <span>Family members outside this fleet — relays RelayPulse cannot reach over SSH, one fingerprint per line.
+              They are kept in every relay's MyFamily; anything not in the fleet or this list is removed.</span>
+            <textarea id="familyExtras" rows="3" spellcheck="false" placeholder="40-character fingerprint, e.g. from another machine"></textarea>
+            <button id="familyExtrasSave">Save list</button>
+            <span id="familyExtrasStatus" class="hint"></span>
+          </label>
+          <div id="familyRemovals" class="family-removals" style="display:none"></div>
+          <div class="family-table-wrap">
+            <table id="familyTable" class="family-table" style="display:none">
+              <thead><tr><th>Relay</th><th>Fingerprint</th><th>MyFamily now</th><th>After apply</th><th>Status</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
       <div style="padding: 0 16px 12px">
         <div class="config-meta" style="font-size:12px; color:#7f8b99; margin-bottom:6px">
           Path: <code id="configPath">—</code>
@@ -238,7 +271,7 @@
     <!-- Settings tab -->
     <section id="tab-settings" class="tab">
       <div class="settings-subtabs">
-        <button class="settings-subtab active" data-pane="pane-servers" id="subtabServers">Relay Connections</button>
+        <button class="settings-subtab active" data-pane="pane-servers" id="subtabServers">Server Connections</button>
         <button class="settings-subtab" data-pane="pane-general" id="subtabGeneral">General</button>
         <button class="settings-subtab" data-pane="pane-monitoring" id="subtabMonitoring">Monitoring</button>
         <button class="settings-subtab" data-pane="pane-security" id="subtabSecurity">Security</button>
@@ -248,15 +281,15 @@
 
       <div id="pane-servers" class="settings-pane">
           <div class="relay-connections-head">
-            <div><h3>Relay Connections</h3><p class="hint">Manage real relay servers, SSH connections and the HTTPS agent.</p></div>
-            <button id="addServer" class="primary">+ Add Relay</button>
+            <div><h3>Server Connections</h3><p class="hint">Manage your servers, SSH connections and the HTTPS agent.</p></div>
+            <button id="addServer" class="primary">+ Add Server</button>
           </div>
           <div class="relay-connections-workspace">
             <div class="relay-list-region">
               <div class="servers-table-wrap">
                 <table id="serversTable">
                   <thead>
-                    <tr><th>Relay Name</th><th>Status</th><th>Hostname / Alias</th><th>Mode</th><th>Agent</th><th>Last Check</th><th>Actions</th></tr>
+                    <tr><th>Server Name</th><th>Status</th><th>Hostname / Alias</th><th>Mode</th><th>Agent</th><th>Last Check</th><th>Actions</th></tr>
                   </thead>
                   <tbody></tbody>
                 </table>
@@ -264,9 +297,9 @@
               <p class="hint relay-connection-note">In the sandbox build, SSH keys and passwords are stored in the encrypted app vault; <code>~/.ssh</code> is not read.</p>
               <button id="importSshKey" type="button">Import SSH key</button>
             </div>
-            <aside id="selectedRelayDetail" class="relay-edit-pane" aria-label="Selected relay editor"></aside>
+            <aside id="selectedRelayDetail" class="relay-edit-pane" aria-label="Selected server editor"></aside>
           </div>
-          <div class="relay-setting-cards" aria-label="Relay connection features">
+          <div class="relay-setting-cards" aria-label="Server connection features">
             <button class="relay-setting-card" data-settings-pane="pane-monitoring"><span class="setting-card-icon">◷</span><b>Polling interval</b><small id="settingsPollingSummary">—</small></button>
             <button class="relay-setting-card" data-settings-pane="pane-monitoring"><span class="setting-card-icon">↻</span><b>Connection mode</b><small id="settingsConnectionSummary">—</small></button>
             <button class="relay-setting-card" data-settings-pane="pane-monitoring"><span class="setting-card-icon">◉</span><b>Desktop alarms</b><small id="settingsAlarmSummary">—</small></button>
@@ -354,7 +387,7 @@
           <div id="monPreviewWrap" class="mon-preview"></div>
 
           <h3 id="settingsTilesTitle" style="margin-top:24px">Dashboard Items</h3>
-          <p class="hint">The colored tiles shown under each relay card. Pick the visual style, and use the checkboxes to choose which ones appear.</p>
+          <p class="hint">The colored tiles shown under each server card. Pick the visual style, and use the checkboxes to choose which ones appear.</p>
           <label>Style variant
             <select id="tileStyle">
               <option value="vivid">1 — Vivid (gradient + brightness)</option>
@@ -393,7 +426,7 @@
           <label>Low RAM warning threshold (usage %)
             <input id="ramWarnPct" type="number" min="70" max="99" step="1" value="90">
           </label>
-          <p class="hint">A sound alert plays when a relay goes offline. If it stays offline, it reminds you again at the chosen interval. If a relay's RAM usage crosses the threshold (available is low), a "Low RAM" warning + notification appears on the card — a heads-up before the box freezes.</p>
+          <p class="hint">A sound alert plays when a server goes offline. If it stays offline, it reminds you again at the chosen interval. If a relay's RAM usage crosses the threshold (available is low), a "Low RAM" warning + notification appears on the card — a heads-up before the box freezes.</p>
           <div class="row">
             <button id="testAlarmBtn">Test alarm</button>
             <button id="saveSettings" class="primary">Save settings</button>
@@ -416,18 +449,18 @@
       <div id="pane-security" class="settings-pane" style="display:none">
         <div>
           <h3 style="margin-top:0">Security</h3>
-          <p class="hint">Fleet-wide SSH hardening. Checks each relay's <b>fail2ban</b> status + banned IPs, SSH <b>password-auth</b>, <b>MaxStartups</b>, and port. "Harden" installs fail2ban + sets MaxStartups/LoginGraceTime + (for key-based logins) disables password-auth. Only touches SSH/port 22 — never relay ports (9001/443/80). Protects against SSH-flood freezes.</p>
+          <p class="hint">Fleet-wide SSH hardening. Checks each server's <b>fail2ban</b> status + banned IPs, SSH <b>password-auth</b>, <b>MaxStartups</b>, and port. "Harden" installs fail2ban + sets MaxStartups/LoginGraceTime + (for key-based logins) disables password-auth. Only touches SSH/port 22 — never relay ports (9001/443/80). Protects against SSH-flood freezes.</p>
           <div class="row" style="margin-top:12px">
-            <button id="secScanBtn" class="primary">Scan All Relays</button>
+            <button id="secScanBtn" class="primary">Scan All Servers</button>
             <button id="secHardenRiskyBtn" class="danger">Harden Risky Ones</button>
           </div>
-          <div id="secStatus" class="fleet-status" style="margin-top:12px">Not scanned yet. Start with "Scan All Relays".</div>
+          <div id="secStatus" class="fleet-status" style="margin-top:12px">Not scanned yet. Start with "Scan All Servers".</div>
           <div id="secTableWrap" style="margin-top:10px"></div>
         </div>
 
         <div style="margin-top:22px">
           <h3>Agent certificates</h3>
-          <p class="hint">Relay agents use self-signed certificates, so RelayPulse remembers each agent's certificate the first time it answers and refuses anything else — otherwise a machine on the network in between could collect your agent tokens. Reset only after reinstalling an agent; the next poll learns the new certificate.</p>
+          <p class="hint">Agents use self-signed certificates, so RelayPulse remembers each agent's certificate the first time it answers and refuses anything else — otherwise a machine on the network in between could collect your agent tokens. Reset only after reinstalling an agent; the next poll learns the new certificate.</p>
           <div class="row" style="margin-top:12px">
             <button id="certPinResetBtn" class="danger">Reset pinned certificates</button>
             <span id="certPinCount" class="hint" style="align-self:center">—</span>
@@ -441,11 +474,12 @@
           <label><span id="incidentPolicyLabel">Incident Policy</span>
             <select id="incidentPolicy">
               <option value="auto">Fix issues automatically</option>
+              <option value="approve">Ask me before running</option>
               <option value="dryrun">Diagnose only (dry-run)</option>
               <option value="off">Disabled</option>
             </select>
           </label>
-          <p class="hint" id="incidentPolicyHint">Choose when AI Auto-Fix acts. "Fix automatically" runs the chosen command on the relay. "Diagnose only" picks a command and logs it but never touches the server. "Disabled" turns the feature off.</p>
+          <p class="hint" id="incidentPolicyHint">Choose when AI Auto-Fix acts. "Fix automatically" runs the chosen command on the server. "Ask me before running" picks the command and puts it in an approval queue with the evidence behind it — nothing runs until you approve. "Diagnose only" picks a command and logs it but never touches the server. "Disabled" turns the feature off.</p>
           <label class="chk" id="autoFixEnabledRow" style="display:none"><input id="autoFixEnabled" type="checkbox"> <span id="autoFixEnabledLabel">Auto-Fix aktif</span></label>
           <label class="chk" id="autoFixDryRunRow" style="display:none"><input id="autoFixDryRun" type="checkbox"> <span id="autoFixDryRunLabel">Dry-run modu</span></label>
           <label>AI Provider
@@ -491,6 +525,10 @@
       <div id="pane-about" class="settings-pane" style="display:none">
         <div style="max-width:480px">
           <h3 style="margin-top:0">About</h3>
+          <div id="profileCard" class="profile-card">
+            <div class="profile-card-title">This window</div>
+            <dl id="profileCardBody"></dl>
+          </div>
           <p class="hint">Each tick runs a single SSH command per server (<code>/proc/net/dev</code>, <code>ss</code>, <code>/proc/stat</code>, <code>/proc/meminfo</code>, <code>df</code>, <code>systemctl is-active anon</code>). Rates are computed by diffing byte counters between ticks. Logs come from <code>journalctl -u anon</code> or <code>/var/log/anon/*</code>.</p>
           <button id="quitBtn" class="danger">Quit app</button>
         </div>

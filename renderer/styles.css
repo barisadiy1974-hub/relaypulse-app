@@ -85,7 +85,6 @@ input, textarea, select, .err, .logview, pre {
   transition: all 0.18s;
 }
 #networkModeBadge   { background: linear-gradient(90deg,rgba(47,125,246,0.18),rgba(49,177,87,0.12)); border-color: rgba(47,125,246,0.35); color: #60a5fa; }
-#tokenPriceBadge    { background: linear-gradient(90deg,rgba(251,191,36,0.15),rgba(245,166,35,0.08)); border-color: rgba(251,191,36,0.35); color: #fbbf24; }
 #autoFixModeBadge   { background: linear-gradient(90deg,rgba(167,139,250,0.15),rgba(139,92,246,0.08)); border-color: rgba(167,139,250,0.3); color: #a78bfa; }
 #lastHourBadge      { background: linear-gradient(90deg,rgba(52,211,153,0.12),rgba(16,185,129,0.07)); border-color: rgba(52,211,153,0.28); color: #34d399; }
 #languageModeBadge  { background: transparent; color: var(--muted); border-color: transparent; }
@@ -3147,3 +3146,73 @@ body.scrolling .cockpit-card canvas.sparkline {
 [data-theme="light"] .cards .card.cockpit-card:hover {
   box-shadow: 0 22px 44px rgba(26, 44, 80, .16), 0 0 0 1px rgba(47, 125, 246, .35) !important;
 }
+
+/* Profil karti — hangi paket / hangi config / kac relay (2026-09-22) */
+.profile-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  background: var(--panel-2); margin: 10px 0 16px; }
+.profile-card-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 8px; }
+.profile-card dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; }
+.profile-card dt { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.profile-card dd { margin: 0; font-size: 12px; color: var(--text); word-break: break-all; }
+.profile-warning { border: 1px solid var(--warn); border-radius: 10px; padding: 12px 14px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--text);
+  margin: 0 0 14px; font-size: 13px; line-height: 1.5; }
+.profile-warning code { word-break: break-all; }
+
+/* Onay kuyrugu — Safe Actions (2026-09-22) */
+.approval-panel { border: 1px solid var(--warn); border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent); padding: 10px 12px; margin-bottom: 10px; }
+.approval-panel-head { font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--warn); margin-bottom: 8px; font-weight: 600; }
+.approval-item { border-top: 1px solid var(--border); padding: 10px 0; }
+.approval-item:first-child { border-top: 0; padding-top: 0; }
+.approval-item-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.approval-cmd { color: var(--accent); font-size: 12px; }
+.approval-age { color: var(--muted); font-size: 11px; margin-left: auto; }
+.approval-reason { color: var(--text); font-size: 12px; margin: 4px 0; }
+.approval-evidence { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.approval-chip { font-size: 11px; color: var(--muted); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 8px; }
+.approval-chip b { color: var(--text); font-weight: 600; }
+.approval-error { font-size: 11px; color: var(--muted); word-break: break-word; margin-bottom: 6px; }
+.approval-command { font-size: 11px; background: var(--panel-3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; margin: 0 0 8px; max-height: 84px; overflow: auto;
+  white-space: pre-wrap; word-break: break-all; }
+.approval-actions { display: flex; gap: 8px; }
+.approval-actions button { font-size: 12px; padding: 4px 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer; }
+.approval-actions .approve { border-color: var(--ok); color: var(--ok); }
+.approval-actions .reject { border-color: var(--err); color: var(--err); }
+.approval-actions button:disabled { opacity: .5; cursor: default; }
+
+/* Relay-only details. A server not seen running relay software (relayHosts in
+   app.js) has no family, fingerprint or reward tier to show. */
+.cockpit-card:not(.is-relay) .kpi-family,
+.cockpit-card:not(.is-relay) .kpi-fingerprint,
+.cockpit-card:not(.is-relay) .relay-reward-row,
+body.no-relays .summary-item.levelup,
+body.no-relays #headFingerprint { display: none !important; }
+[data-theme] #tab-dashboard .cockpit-card:not(.is-relay) .cockpit-kpis,
+.cockpit-card:not(.is-relay) .cockpit-kpis { grid-template-columns: 1fr !important; }
+/* Leveling Up is hidden for non-relay fleets; close the gap it leaves. */
+[data-theme] body.no-relays .summary-strip,
+body.no-relays .summary-strip { grid-template-columns: repeat(5, minmax(70px, 1fr)); }
+
+/* Relay family panel (Tools tab). Relay-only, like Nyx. */
+body.no-relays #familyPanel { display: none !important; }
+.family-panel { margin: 0 16px 12px; border: 1px solid var(--rp-line, #22262f); border-radius: 10px; padding: 8px 12px; }
+.family-panel > summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.family-body { display: grid; gap: 10px; padding-top: 8px; }
+.family-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.family-extras { display: grid; gap: 6px; font-size: 12px; }
+.family-extras textarea { width: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.family-extras button { justify-self: start; }
+.family-removals { border-left: 3px solid #f0a33a; background: rgba(240,163,58,.08); padding: 8px 12px; border-radius: 0 6px 6px 0; font-size: 12px; }
+.family-removals code { word-break: break-all; }
+.family-table-wrap { max-height: 360px; overflow: auto; }
+.family-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.family-table th, .family-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--rp-line, #22262f); vertical-align: top; }
+.family-table td.fp { font-family: ui-monospace, Menlo, monospace; }
+.family-table .st-ok { color: #34d399; } .family-table .st-warn { color: #fbbf24; } .family-table .st-err { color: #f87171; }
+.family-table tr.fam-active td { background: rgba(124,106,247,.16); }

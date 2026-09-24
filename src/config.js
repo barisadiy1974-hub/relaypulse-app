@@ -43,6 +43,9 @@ const DEFAULTS = {
   // transport. These are not credentials and intentionally remain readable.
   sshHostKeys: {},
   autoFixDryRun: false,
+  // Safe Actions: acikken AI komutu secer ama CALISTIRMAZ; oneri kanitiyla birlikte
+  // onay kuyruguna girer. dry-run bunu ezer (dry-run daha guvenli).
+  autoFixRequireApproval: false,
   anyoneClientEnabled: false,
   routeThroughAnyone: false,
   anyoneSocksPort: 19150,
@@ -132,7 +135,10 @@ class Config {
     const persisted = this._stripSecretsForDisk(buildDefaults(data), vault);
     delete persisted.__secretMigrationApplied;
     this._writeVault(vault);
-    this._atomicWrite(this.path, JSON.stringify(persisted, null, 2));
+    // BUG FIX (2026-09-22): sidecar 0600 ile yaziliyordu ama ANA config hic mod almiyor,
+    // umask'a kaliyor ve 0644 oluyordu. Icinde licenseKey duruyor (API anahtarlari vault'ta,
+    // orasi dogru). Makinedeki her kullanici okuyabiliyordu.
+    this._atomicWrite(this.path, JSON.stringify(persisted, null, 2), 0o600);
   }
 
   // Atomik yazma: önce geçici dosyaya yaz, sonra rename (POSIX'te atomik).

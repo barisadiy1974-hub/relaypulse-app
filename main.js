@@ -475,6 +475,19 @@ async function fetchAllRelayFingerprints() {
     const batchRows = await Promise.all(batch.map(auditOne));
     rows.push(...batchRows);
   }
+  // Retry the ones that did not answer, one at a time. About 1% of SSH attempts
+  // fail transiently on this fleet, and the family plan is all-or-nothing: over
+  // a large fleet one timeout blocked the whole apply almost every run
+  // (two relays timed out, then answered in 1 s a minute later).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const retry = rows.map((r, i) => [r, i]).filter(([r]) => !r.auditOk);
+    if (!retry.length) break;
+    await new Promise((r) => setTimeout(r, 1500));
+    for (const [, i] of retry) {
+      const s = servers.find((x) => x.name === rows[i].name);
+      if (s) rows[i] = await auditOne(s);
+    }
+  }
   return {
     ok: true,
     updatedAt: new Date().toISOString(),
@@ -617,10 +630,25 @@ function buildMyFamilyBody(content, familyLine) {
   return body;
 }
 
+// Family members that are not in this fleet: a relay on a machine RelayPulse
+// has no SSH to (a home box, a friend's server). The plan is built from live
+// fingerprints only, so without this list Apply would silently drop them from
+// every relay's MyFamily.
+function familyExtraFingerprints() {
+  try {
+    const list = config.load().familyExtraFingerprints;
+    return Array.isArray(list) ? Array.from(new Set(list.map(normalizeRelayFingerprint).filter(Boolean))) : [];
+  } catch { return []; }
+}
+
 async function buildRelayFamilyPlan() {
   const fpsResult = await fetchAllRelayFingerprints();
   const goodRows = (fpsResult.rows || []).filter((row) => row.ok && row.fingerprint);
-  const allFingerprints = Array.from(new Set(goodRows.map((row) => normalizeRelayFingerprint(row.fingerprint)).filter(Boolean)));
+  const extraFingerprints = familyExtraFingerprints();
+  const allFingerprints = Array.from(new Set([
+    ...goodRows.map((row) => normalizeRelayFingerprint(row.fingerprint)),
+    ...extraFingerprints,
+  ].filter(Boolean)));
   const rows = (fpsResult.rows || []).map((row) => {
     const selfFingerprint = normalizeRelayFingerprint(row.fingerprint);
     if (!row.ok || !selfFingerprint) {
@@ -656,22 +684,38 @@ async function buildRelayFamilyPlan() {
       familyLine,
       familyCount: familyFingerprints.length,
       familyUpToDate: expectedSet === currentSet && familySyntaxUpToDate,
+      // What Apply would change on this relay, so the preview can show it:
+      // a fingerprint that is live in MyFamily today but in neither the fleet
+      // nor the extra list is about to be REMOVED.
+      addedFingerprints: familyFingerprints.filter((fp) => !currentFamilyFingerprints.includes(fp)),
+      removedFingerprints: currentFamilyFingerprints.filter((fp) => !familyFingerprints.includes(fp) && fp !== selfFingerprint),
     };
   });
   return {
     ok: true,
     updatedAt: new Date().toISOString(),
+    familySize: allFingerprints.length,
+    extraFingerprints,
+    failedCount: rows.filter((r) => !r.ok).length,
+    // Full family including every member, for "Copy MyFamily".
+    familyLine: formatMyFamilyLine(allFingerprints),
     rows,
   };
 }
 
-async function applyRelayFamilyPlan() {
+// onProgress(event) lets the panel show each relay as it is checked and
+// written, instead of one "Writing..." line for 10-20 minutes.
+async function applyRelayFamilyPlan(onProgress = () => {}) {
+  const progress = (e) => { try { onProgress(e); } catch {} };
   const cfg = config.load();
   const servers = cfg.servers || [];
   const plan = await buildRelayFamilyPlan();
   const preflight = [];
   const blocked = [];
+  const total = (plan.rows || []).length;
+  let checked = 0;
   for (const row of plan.rows || []) {
+    progress({ phase: 'precheck', name: row.name, index: ++checked, total });
     const server = servers.find((s) => s.name === row.name);
     if (!server) {
       blocked.push({ name: row.name, ok: false, error: 'Server not found' });
@@ -682,7 +726,12 @@ async function applyRelayFamilyPlan() {
       continue;
     }
     try {
-      const read = await monitor.readAnonrc(server);
+      // Same transient-failure retry as the fingerprint read above.
+      let read = await monitor.readAnonrc(server);
+      for (let attempt = 0; attempt < 2 && !read.ok; attempt++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        read = await monitor.readAnonrc(server);
+      }
       if (!read.ok) {
         blocked.push({
           name: row.name,
@@ -724,9 +773,18 @@ async function applyRelayFamilyPlan() {
   const results = [];
   for (const item of preflight) {
     const { row, server, content } = item;
+    // Already correct: no write, no reload. Also makes a re-run after a partial
+    // apply cheap - it only touches the relays that are still behind.
+    if (row.familyUpToDate) {
+      results.push({ name: row.name, ok: true, skipped: 'up to date', fingerprint: row.fingerprint, familyCount: row.familyCount });
+      progress({ phase: 'skipped', name: row.name, index: results.length, total: preflight.length });
+      continue;
+    }
+    progress({ phase: 'writing', name: row.name, index: results.length + 1, total: preflight.length });
     try {
       const nextBody = buildMyFamilyBody(content, row.familyLine);
-      const write = await monitor.writeAnonrc(server, nextBody, { verify: true, restart: true });
+      // reload keeps relay uptime; units that cannot reload are restarted.
+      const write = await monitor.writeAnonrc(server, nextBody, { verify: true, restart: true, reload: true });
       results.push({
         name: row.name,
         ok: !!write.ok,
@@ -738,8 +796,10 @@ async function applyRelayFamilyPlan() {
         active: write.active,
         error: write.ok ? '' : (write.error || 'write fail'),
       });
+      progress({ phase: write.ok ? 'done' : 'failed', name: row.name, index: results.length, total: preflight.length, error: write.ok ? '' : (write.error || 'write fail') });
     } catch (e) {
       results.push({ name: row.name, ok: false, error: e.message, familyLine: row.familyLine });
+      progress({ phase: 'failed', name: row.name, index: results.length, total: preflight.length, error: e.message });
     }
   }
   const okCount = results.filter((r) => r.ok).length;
@@ -948,6 +1008,36 @@ const relayAlertStates = new Map(); // server -> online|stale|offline
 const relayFingerprintCache = new Map(); // server name -> fingerprint (populated from monitoring snapshots)
 const anonServiceStates = new Map(); // server -> active|inactive
 const anonInactiveCounts = new Map(); // server -> consecutive inactive snapshots
+// Auto-Fix freni. 2026-09-22'de olculdu: bir relay OS duzeyinde olmustu (cekirdek
+// ayakta, :22 TCP kabul ediyor ama sshd banner gonderemiyor, anon da olu). Auto-Fix
+// her ~5 dakikada bir tetiklendi, her seferinde OpenAI cagrildi ve komut kutuya hic
+// ulasamadan dustu. SSH yoksa hicbir AI duzeltemez — bu kutuda AI cagrisi saf israf.
+// Ust uste bu kadar "kutuya ulasamadan dustu" sonrasi AI cagrilari durur; relay
+// toparlayinca sayac sifirlanir.
+const autoFixDeadEnds = new Map(); // server -> consecutive attempts that never reached the box
+
+// Onay kuyrugu ("Safe Actions"). autoFixRequireApproval acikken AI komutu SECER ama
+// CALISTIRMAZ; oneri kanitiyla birlikte burada bekler, operator onaylayinca calisir.
+//
+// TTL kasitli: eski bir oneriyi saatler sonra onaylamak, durumu degismis bir kutuda
+// komut calistirmak demektir (relay kendi toparlamis olabilir, ya da sorun baskalasmistir).
+// Suresi gecen oneri calistirilmaz, reddedilir.
+const pendingApprovals = new Map();   // id -> { id, name, commandName, command, reason, evidence, createdAt }
+const APPROVAL_TTL_MS = 30 * 60 * 1000;
+let approvalSeq = 0;
+
+function prunePendingApprovals() {
+  const now = Date.now();
+  for (const [id, a] of pendingApprovals) {
+    if (now - a.createdAt > APPROVAL_TTL_MS) pendingApprovals.delete(id);
+  }
+}
+
+function listPendingApprovals() {
+  prunePendingApprovals();
+  return [...pendingApprovals.values()].sort((a, b) => b.createdAt - a.createdAt);
+}
+const AUTOFIX_DEAD_END_LIMIT = 3;
 const dashboardRedCounts = new Map(); // server -> consecutive dashboard running=false snapshots
 const ramWarnCounts = new Map(); // server -> consecutive low-available-RAM snapshots
 let ramWarnPct = 90; // dusuk RAM uyari esigi (kullanim %); ayarlardan guncellenir
@@ -1031,7 +1121,11 @@ function saveUptimeStats() {
     for (const [name, row] of uptimeStats.entries()) {
       out[name] = row;
     }
-    fs.writeFileSync(uptimeStatsPath, JSON.stringify(out, null, 2), 'utf8');
+    // BUG FIX (2026-09-22): writeFileSync dosyayi ONCE bosaltir; ani kapanmada
+    // uptime gecmisi bozuk/bos kalir. config.js'teki desenin aynisi: tmp + rename.
+    const tmp = `${uptimeStatsPath}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(out, null, 2), 'utf8');
+    fs.renameSync(tmp, uptimeStatsPath);
   } catch {}
 }
 
@@ -1197,6 +1291,8 @@ async function triggerAutoFix(snap) {
   try {
     const cfg = config.load();
     if (!cfg.autoFixEnabled) { autoFixLog(`${snap.name} skipped — Auto-Fix is disabled`); return; }
+    // Fren: kutuya ulasilamiyorsa AI'i bir daha cagirma (sessizce, log gurultusu yapmadan).
+    if ((autoFixDeadEnds.get(snap.name) || 0) >= AUTOFIX_DEAD_END_LIMIT) return;
     const verdict = classifyAutoFixability(snap.error);
     if (!verdict.autoFixable) {
       autoFixLog(`${snap.name} skipped — Auto-Fix unavailable: ${verdict.reason}`);
@@ -1209,6 +1305,19 @@ async function triggerAutoFix(snap) {
     }
     showDesktopNotification(`Auto-Fix: ${snap.name}`, 'AI is analyzing...');
     const dryRun = !!cfg.autoFixDryRun;
+    // Oncelik: dry-run en guvenlisi, onay modunu da ezer.
+    const requireApproval = !dryRun && !!cfg.autoFixRequireApproval;
+    let queuedApproval = null;
+    // Onerinin ALTINDA gosterilecek kanit: operator "neden bu komut?" diye
+    // sormadan karar verebilmeli.
+    const evidence = {
+      error: String(snap.error || '').slice(0, 300),
+      state: snap.state || '',
+      anon: (snap.anon && snap.anon.active) || 'unknown',
+      ports: (snap.anon && Array.isArray(snap.anon.ports)) ? snap.anon.ports.length : 0,
+      issueKind: snap.issueKind || classifyRelayIssue(snap),
+      agentAnswered: !!(snap.ok && snap.agentOk),
+    };
     let recentLogs = [];
     let logSource = 'live';
     try {
@@ -1251,11 +1360,48 @@ async function triggerAutoFix(snap) {
       cfg,
       runCommandFn: dryRun
         ? async (_name, cmd) => ({ ok: true, output: `[dry-run] ${cmd}` })
-        : (name, cmd) => monitor.runCommand(name, cmd),
+        : requireApproval
+          ? async (_name, cmd) => {
+            // Komut CALISMIYOR: kuyruga alinip operatorun karari bekleniyor.
+            queuedApproval = {
+              id: `ap-${Date.now()}-${++approvalSeq}`,
+              name: snap.name,
+              command: cmd,
+              reason: '',
+              evidence,
+              createdAt: Date.now(),
+            };
+            return { ok: true, output: '[awaiting approval]' };
+          }
+          : (name, cmd) => monitor.runCommand(name, cmd),
     });
-    autoFixLog(`${snap.name} result: action=${result.action || 'error'} ok=${result.ok} dryRun=${dryRun ? 'yes' : 'no'} reason=${result.reason || ''} error=${result.error || ''}`);
+    if (queuedApproval) {
+      queuedApproval.commandName = result.commandName || 'command';
+      queuedApproval.reason = result.reason || '';
+      prunePendingApprovals();
+      pendingApprovals.set(queuedApproval.id, queuedApproval);
+      result.action = 'awaiting-approval';
+      result.awaitingApproval = true;
+    }
+    autoFixLog(`${snap.name} result: action=${result.action || 'error'} ok=${result.ok} mode=${dryRun ? 'dry-run' : requireApproval ? 'approval' : 'live'} reason=${result.reason || ''} error=${result.error || ''}`);
+    // Komut kutuya HIC ulasamadiysa (SSH dustu / kimlik sorunu) bunu say. Ayni siniflandirmayi
+    // kullaniyoruz ki "ulasilamaz" tanimi tek yerde kalsin.
+    if (!result.ok && result.error && !classifyAutoFixability(result.error).autoFixable) {
+      const tries = (autoFixDeadEnds.get(snap.name) || 0) + 1;
+      autoFixDeadEnds.set(snap.name, tries);
+      if (tries === AUTOFIX_DEAD_END_LIMIT) {
+        const msg = `${snap.name}: SSH failed ${tries} times in a row before the command could run — Auto-Fix stopped. The box needs manual intervention (provider console or reboot).`;
+        autoFixLog(msg);
+        showDesktopNotification(`Auto-Fix Stopped: ${snap.name}`, 'SSH is unreachable — manual intervention needed');
+      }
+    } else {
+      autoFixDeadEnds.delete(snap.name);
+    }
     if (result.action === 'none') {
       showDesktopNotification(`Auto-Fix: ${snap.name}`, `AI: ${result.reason}`);
+    } else if (result.awaitingApproval) {
+      showDesktopNotification(`Auto-Fix needs approval: ${snap.name}`,
+        `${result.commandName || 'command'} is waiting for your approval`);
     } else if (dryRun) {
       showDesktopNotification(`Auto-Fix DRY-RUN: ${snap.name}`, `${result.commandName || 'command'} was not run\n${result.reason || ''}`.trim());
     } else if (result.ok) {
@@ -1386,7 +1532,6 @@ function requestAppQuit() {
   isQuitting = true;
   for (const t of relayReminderTimers.values()) clearInterval(t);
   relayReminderTimers.clear();
-  clearDashboardKeepAliveTimer();
   try { monitor && monitor.stop(); } catch {}
   if (tray) {
     try { tray.destroy(); } catch {}
@@ -1485,7 +1630,7 @@ function createTray() {
       ...(showUnlock ? [
         { type: 'separator' },
         {
-          label: `Unlock RelayPulse (${FREE_RELAY_LIMIT}-relay free tier)…`,
+          label: `Unlock RelayPulse (${FREE_RELAY_LIMIT}-server free tier)…`,
           click: () => {
             if (!win || win.isDestroyed()) return;
             win.loadFile(path.join(__dirname, 'renderer', 'purchase.html'));
@@ -1693,6 +1838,8 @@ app.whenReady().then(async () => {
         const nextAnon = rawActive === 'active' ? 'active' : (rawActive === 'failed' ? 'failed' : 'inactive');
         const nextInactiveCount = nextAnon !== 'active' ? ((anonInactiveCounts.get(data.name) || 0) + 1) : 0;
         anonInactiveCounts.set(data.name, nextInactiveCount);
+        // Relay yeniden saglikliysa Auto-Fix freni de kalkar.
+        if (nextAnon === 'active') autoFixDeadEnds.delete(data.name);
         // DAMPENING: Tek bir "inactive" okuması yetmez — geçici SSH/agent hıçkırıkları
         // false positive üretiyor. Gerçek bir kesinti birkaç poll boyunca sürer.
         // En az 2 ardışık inactive/failed görülünce auto-fix tetiklenir.
@@ -1952,6 +2099,65 @@ ipcMain.handle('monitor:start', (_e, mode) => {
   return { ok: true, connectionMode };
 });
 
+// Hangi paketten, hangi config ile calisiyoruz?
+//
+// Neden var (2026-09-22): kullanici /Applications/RelayPulse.app'i acinca filoyu bos
+// gordu ve verisini kaybettigini sandi. Sebep veri kaybi degildi: o kopya SANDBOX'li
+// (App Store/TestFlight) ve kendi kabinine bakiyor; gercek profil
+// sandbox'siz kopyanin userData'sinda. Ayni isimli iki uygulamanin farkli ayarlarla
+// acik olmasi operator icin ayirt edilemezdi — artik ekranda yaziyor.
+ipcMain.handle('autofix:pending', () => listPendingApprovals());
+
+ipcMain.handle('autofix:reject', (_e, id) => {
+  const a = pendingApprovals.get(id);
+  if (a) autoFixLog(`${a.name} suggestion rejected by operator — ${a.commandName} was NOT run`);
+  return { ok: pendingApprovals.delete(id) };
+});
+
+ipcMain.handle('autofix:approve', async (_e, id) => {
+  // prune ONCE calisiyor: suresi gecmis bir oneri onaylanamaz. Eski bir komutu
+  // simdi calistirmak, durumu degismis bir kutuya mudahale etmek olurdu.
+  prunePendingApprovals();
+  const a = pendingApprovals.get(id);
+  if (!a) return { ok: false, error: 'This suggestion is no longer available — it was already handled or it expired.' };
+  pendingApprovals.delete(id);
+  autoFixLog(`${a.name} APPROVED by operator — running: ${a.commandName}`);
+  let r;
+  try {
+    r = await monitor.runCommand(a.name, a.command);
+  } catch (e) {
+    r = { ok: false, output: '', error: e.message };
+  }
+  autoFixLog(`${a.name} approved-run result: ok=${r.ok} ${r.error ? 'error=' + r.error : ''}`);
+  const payload = {
+    name: a.name,
+    result: { ok: r.ok, action: 'ran', commandName: a.commandName, output: r.output || '', reason: a.reason, error: r.error || '' },
+  };
+  if (win && !win.isDestroyed()) win.webContents.send('autofix-result', payload);
+  else pendingAutoFixResults.push(payload);
+  return { ok: r.ok, error: r.error || '' };
+});
+
+ipcMain.handle('app:profile', () => {
+  const userData = app.getPath('userData');
+  let relayCount = 0;
+  try { relayCount = (config.load().servers || []).length; } catch {}
+  const cfg = (() => { try { return config.load(); } catch { return {}; } })();
+  return {
+    version: app.getVersion(),
+    // macOS sandbox'i userData'yi ~/Library/Containers/<bundleId>/Data altina hapseder.
+    // Yolun kendisi en guvenilir isaret; entitlement okumak icin harici arac gerekirdi.
+    sandboxed: userData.includes(`${path.sep}Containers${path.sep}`),
+    appPath: app.getAppPath(),
+    userData,
+    relayCount,
+    demo: isDemoMode(),
+    autoFixMode: !cfg.autoFixEnabled ? 'off' : (cfg.autoFixDryRun ? 'dry-run' : 'live'),
+    autoFixCommandCount: (cfg.autoFixCommands || []).length,
+    aiProvider: cfg.aiProvider || 'openai',
+  };
+});
+
 ipcMain.handle('settings:get', () => {
   const cfg = config.load();
   return {
@@ -2030,8 +2236,21 @@ ipcMain.handle('relay:fingerprints', async () => {
 ipcMain.handle('relay:familyPlan', async () => {
   return await buildRelayFamilyPlan();
 });
-ipcMain.handle('relay:familyApplyAll', async () => {
-  return await applyRelayFamilyPlan();
+ipcMain.handle('relay:familyApplyAll', async (e) => {
+  return await applyRelayFamilyPlan((p) => {
+    if (!e.sender.isDestroyed()) e.sender.send('family:progress', p);
+  });
+});
+ipcMain.handle('family:extras:get', () => ({ ok: true, fingerprints: familyExtraFingerprints() }));
+ipcMain.handle('family:extras:set', (_e, list) => {
+  const raw = Array.isArray(list) ? list : String(list || '').split(/[\s,]+/);
+  const fps = Array.from(new Set(raw.map(normalizeRelayFingerprint).filter(Boolean)));
+  const rejected = raw.filter((v) => String(v || '').trim() && !normalizeRelayFingerprint(v));
+  if (rejected.length) return { ok: false, error: `Not a 40-character fingerprint: ${rejected.slice(0, 3).join(', ')}` };
+  const cfg = config.load();
+  cfg.familyExtraFingerprints = fps;
+  config.save(cfg);
+  return { ok: true, fingerprints: fps };
 });
 
 // --- Günlük ödül geçmişi (kalıcı) ---
@@ -2673,11 +2892,31 @@ ipcMain.handle('nyx:open', async (_e, name) => {
   if (SANDBOX) return { ok: true, embedded: true };
   // Force TERM explicitly — some remote sessions ship with TERM=unknown which
   // breaks every curses-based TUI including nyx.
-  const remoteCmd = `export TERM=xterm-256color;
+  // Ayni IP'de birden fazla relay varsa asagidaki IP eslemesi ikisini ayirt
+  // edemez: her iki anonrc de ayni Address satirini tasir, dongu ilkini secer
+  // ve her iki kart da ayni ControlPort'u (9051) acar. Sunucu kaydindaki
+  // instance alani varsa dogru config'in ControlPort'u dogrudan bulunur.
+  const _inst = String(s.instance || '').trim();
+  const _instPrefix = /^[A-Za-z0-9._-]+$/.test(_inst) ? `ANON_INSTANCE='${_inst}'\n` : '';
+  const remoteCmd = _instPrefix + `export TERM=xterm-256color;
+MATCHED_CTRL=""
+if [ -n "$ANON_INSTANCE" ]; then
+  AI_NUM=""
+  case "$ANON_INSTANCE" in
+    anon[0-9]|anon[0-9][0-9]) AI_NUM=\${ANON_INSTANCE#anon} ;;
+    [0-9]|[0-9][0-9]) AI_NUM=$ANON_INSTANCE ;;
+  esac
+  AI_RC=""
+  if [ -n "$AI_NUM" ] && [ -f "/etc/anon/anonrc-$AI_NUM" ]; then
+    AI_RC="/etc/anon/anonrc-$AI_NUM"
+  elif [ -f "/etc/anon/instances/$ANON_INSTANCE/anonrc" ]; then
+    AI_RC="/etc/anon/instances/$ANON_INSTANCE/anonrc"
+  fi
+  [ -n "$AI_RC" ] && MATCHED_CTRL=$(grep '^ControlPort' "$AI_RC" 2>/dev/null | awk '{print $2}' | head -1)
+fi
 # Multi-instance: find anonrc matching SSH destination IP
 LOCAL_IP=$(echo $SSH_CONNECTION | awk '{print $3}')
-MATCHED_CTRL=""
-if [ -n "$LOCAL_IP" ]; then
+if [ -z "$MATCHED_CTRL" ] && [ -n "$LOCAL_IP" ]; then
   for rc in /etc/anon/anonrc-* /etc/anon/instances/*/anonrc; do
     [ -f "$rc" ] || continue
     if grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null; then
@@ -2921,7 +3160,6 @@ app.on('before-quit', () => {
   isQuitting = true;
   for (const t of relayReminderTimers.values()) clearInterval(t);
   relayReminderTimers.clear();
-  clearDashboardKeepAliveTimer();
   try { monitor && monitor.stop(); } catch {}
   for (const session of embeddedTerminalSessions.values()) { try { session.shellSession.close(); } catch {} }
   embeddedTerminalSessions.clear();

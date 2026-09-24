@@ -1,8 +1,28 @@
 // AI-powered auto-fix: analyzes relay failures and runs the appropriate fix command.
 // Supports OpenAI (gpt-4o-mini) and Claude (claude-haiku-4-5) providers.
 
+// BUG FIX (2026-09-22): saglayici isteklerinde hicbir zaman asimi yoktu. Ag ya da
+// saglayici takilirsa istek suresiz asili kalir; auto-fix akisi o relay icin kilitlenir
+// (autoFixInProgress set'i temizlenmez) ve o kutu bir daha hic denenmez.
+const AI_TIMEOUT_MS = 30000;
+
+async function fetchWithTimeout(url, opts) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), AI_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...opts, signal: ctl.signal });
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      throw new Error(`AI provider did not answer within ${AI_TIMEOUT_MS / 1000}s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function callOpenAI(apiKey, userPrompt) {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const res = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -23,7 +43,7 @@ async function callOpenAI(apiKey, userPrompt) {
 }
 
 async function callClaude(apiKey, userPrompt) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'x-api-key': apiKey,
@@ -50,26 +70,65 @@ async function callClaude(apiKey, userPrompt) {
 const RESTART_RELAY = /relay yeniden baslatma|relay zorunlu yenileme|restart.*relay|relay.*restart/i;
 const RESTART_SSH = /ssh enable ve restart|ssh servisi yeniden baslatma|restart.*ssh|ssh.*restart/i;
 
+// Salt okunur komutlarin ad kaliplari. Kullanicinin listesi degisebilir; ad
+// kalibiyla ariyoruz ki liste yeniden siralansa da bulunsun.
+const CHECK_STATUS = /check.*status|service status|servis durum/i;
+const SHOW_LOGS    = /log lines|last \d+ log|son \d+ .*log|journalctl|loglar/i;
+const DISK_USAGE   = /disk usage|disk kullan|disk alan/i;
+const RAM_LOAD     = /ram and load|ram ve yuk|memory.*load|bellek.*yuk/i;
+const REBOOT_CHECK = /reboot required|reboot gerek|yeniden baslatma gerek/i;
+const GUARD_FIX    = /guard path.*duzelt|enforced.*subnet|tam otomatik relay/i;
+
+// Hata imzasi -> hangi komut. SIRA ONEMLI, en ozel kalip once.
+//
+// Tasarim: anahtar yokken (ya da API dustugunde) dogru davranis "tahminle bir sey
+// degistir" DEGIL, "operatorun karar verebilecegi kaniti topla". Bu yuzden girdilerin
+// cogu SALT OKUNUR bir komuta gidiyor; yalnizca sebebi kesin bilinen uc imza servis
+// yeniden baslatiyor. Her kural birden fazla aday sayar: ilki kullanicinin listesinde
+// yoksa sonraki denenir, hicbiri yoksa genel taniya duser.
+//
+// ONCEKI HATA: fail2ban dali listede olmayan tek bir komuta bakiyordu ve undefined
+// donuyordu — fail2ban hatasinda auto-fix HICBIR SEY yapmiyordu, log bile toplamiyordu.
+const FALLBACK_RULES = [
+  { kind: 'disk',    when: /no space left|disk full|write error|read-only file system|input\/output error|ext4-fs error|quota exceeded|disk dolu/i,
+    pick: [DISK_USAGE, SHOW_LOGS] },
+  { kind: 'memory',  when: /out of memory|oom-kill|oom killer|cannot allocate memory|cannot fork|resource temporarily unavailable|bellek yetersiz/i,
+    pick: [RAM_LOAD, SHOW_LOGS] },
+  { kind: 'reboot',  when: /reboot-required|reboot required|system restart required|kernel.*upgrad|yeniden baslatma gerekiyor/i,
+    pick: [REBOOT_CHECK, SHOW_LOGS] },
+  { kind: 'pkglock', when: /could not get lock|dpkg.*lock|apt.*lock|unattended-upgr|frontend is locked/i,
+    pick: [SHOW_LOGS, CHECK_STATUS] },
+  { kind: 'ban',     when: /fail2ban|banned|ban list|jail/i,
+    pick: [CHECK_STATUS, SHOW_LOGS] },
+  { kind: 'clock',   when: /clock skew|time skew|not yet valid|certificate.*expired|saat kaymas/i,
+    pick: [SHOW_LOGS, CHECK_STATUS] },
+  { kind: 'guard',   when: /dashboard_running=false|running=false|relay agda gorunmuyor|guard.*path|path.*restriction|enforce.*subnet|port.*missing|relay port/i,
+    pick: [GUARD_FIX, RESTART_RELAY] },
+  { kind: 'anon',    when: /anon servisi (inactive|failed) oldu|inactive|deactivated|failed to bind|relay offline|anon.*failed|failed.*anon/i,
+    pick: [RESTART_RELAY, CHECK_STATUS] },
+  { kind: 'ssh',     when: /ssh master|ssh cevap vermiyor|ssh baglantisi|connection refused|permission denied|host key|banner|handshake|sshd|port 22/i,
+    pick: [RESTART_SSH, CHECK_STATUS] },
+];
+
 function pickFallbackCommand(errorMsg, autoFixCommands) {
-  const msg = String(errorMsg || '').toLowerCase();
-  if (!msg) return null;
+  const msg = String(errorMsg || '');
+  if (!msg.trim()) return null;
+  const list = Array.isArray(autoFixCommands) ? autoFixCommands : [];
+  const byName = (re) => list.find(c => re.test(String(c.name || '')));
 
-  const findByName = (pattern) => autoFixCommands.find(c => pattern.test(String(c.name || '')));
-
-  if (/dashboard_running=false|running=false|relay agda gorunmuyor|guard.*path|path.*restriction|enforce.*subnet|port.*missing|relay port/.test(msg)) {
-    return findByName(/guard path.*duzelt|enforced.*subnet|tam otomatik relay/i) || findByName(RESTART_RELAY);
+  for (const rule of FALLBACK_RULES) {
+    if (!rule.when.test(msg)) continue;
+    for (const re of rule.pick) {
+      const hit = byName(re);
+      if (hit) return hit;
+    }
+    break;   // kural esletti ama tercihleri yapilandirilmamis -> genel taniya dus
   }
-  if (/anon servisi (inactive|failed) oldu|inactive|deactivated|failed to bind|relay offline|anon.*failed|failed.*anon/.test(msg)) {
-    return findByName(RESTART_RELAY);
-  }
-  if (/ssh master|ssh cevap vermiyor|ssh baglantisi|connection refused|permission denied|host key|banner|handshake|sshd|port 22/.test(msg)) {
-    return findByName(RESTART_SSH);
-  }
-  if (/fail2ban|ban/.test(msg)) {
-    return findByName(/fail2ban ban kaldir|fail2ban.*unban|unban/i);
-  }
-  return null;
+  // Kutuya ulasilabiliyor ama sebep taninmiyor: en azindan kaniti topla.
+  // (Ulasilamayan kutular buraya hic gelmez, classifyAutoFixability once eler.)
+  return byName(SHOW_LOGS) || byName(CHECK_STATUS) || null;
 }
+
 
 // Main entry point. Returns { ok, action, commandName?, output?, reason, error? }
 // action is 'ran' | 'none' | undefined (on error)
@@ -273,4 +332,6 @@ Response format (JSON ONLY, nothing else):
   };
 }
 
-module.exports = { analyzeAndFix };
+// pickFallbackCommand denetim kosumundan test edilebilsin diye disa aciliyor:
+// anahtarsiz calisan tek karar noktasi bu, kalipla degil CALISTIRILARAK dogrulanmali.
+module.exports = { analyzeAndFix, pickFallbackCommand };

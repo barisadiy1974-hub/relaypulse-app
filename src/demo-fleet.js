@@ -1,10 +1,10 @@
 // A believable but entirely invented fleet.
 //
 // It exists for two reasons:
-//  1. App Review. The reviewer has no relay servers and no SSH access, so
+//  1. App Review. The reviewer has no servers and no SSH access, so
 //     without this they open RelayPulse, see an empty list, and can exercise
 //     nothing — which is a Guideline 2.1 rejection.
-//  2. Store screenshots, so no real relay name, IP or wallet has to be
+//  2. Store screenshots, so no real server name, IP or wallet has to be
 //     published.
 //
 // The numbers are derived from the clock rather than randomised, so the fleet
@@ -17,16 +17,16 @@
 // never belong to a real host.
 
 const BLUEPRINT = [
-  { name: 'relay-oslo-01', host: '203.0.113.10', state: 'online' },
-  { name: 'relay-oslo-02', host: '203.0.113.11', state: 'online' },
-  { name: 'relay-bergen-01', host: '203.0.113.24', state: 'online' },
-  { name: 'relay-frankfurt-01', host: '198.51.100.7', state: 'online' },
-  { name: 'relay-frankfurt-02', host: '198.51.100.8', state: 'warn' },
-  { name: 'relay-amsterdam-01', host: '198.51.100.42', state: 'online' },
-  { name: 'relay-paris-01', host: '192.0.2.15', state: 'stale' },
-  { name: 'relay-london-01', host: '192.0.2.31', state: 'online' },
-  { name: 'relay-madrid-01', host: '192.0.2.77', state: 'offline' },
-  { name: 'relay-warsaw-01', host: '203.0.113.90', state: 'online' },
+  { name: 'web-01', host: '203.0.113.10', state: 'online', svc: 'nginx', ports: ['80', '443'] },
+  { name: 'web-02', host: '203.0.113.11', state: 'online', svc: 'nginx', ports: ['80', '443'] },
+  { name: 'api-01', host: '203.0.113.24', state: 'online', svc: 'docker', ports: ['8080'] },
+  { name: 'db-01', host: '198.51.100.7', state: 'online', svc: 'postgresql', ports: ['5432'] },
+  { name: 'db-02', host: '198.51.100.8', state: 'warn', svc: 'postgresql', ports: ['5432'] },
+  { name: 'cache-01', host: '198.51.100.42', state: 'online', svc: 'redis-server', ports: ['6379'] },
+  { name: 'worker-01', host: '192.0.2.15', state: 'stale', svc: 'docker', ports: [] },
+  { name: 'worker-02', host: '192.0.2.31', state: 'online', svc: 'docker', ports: [] },
+  { name: 'backup-01', host: '192.0.2.77', state: 'offline', svc: 'restic', ports: [] },
+  { name: 'mail-01', host: '203.0.113.90', state: 'online', svc: 'postfix', ports: ['25', '587'] },
 ];
 
 const BANNER = 'Demo data — not a real fleet';
@@ -96,8 +96,8 @@ function snapshots(now = Date.now()) {
       cpuCount: i % 3 === 0 ? 4 : 2,
       anon: {
         active: anonActive ? 'active' : 'inactive',
-        ports: anonActive ? ['9001', '9030'] : [],
-        services: { anon: anonActive ? 'active' : 'inactive' },
+        ports: anonActive ? b.ports : [],
+        services: { [b.svc]: anonActive ? 'active' : 'inactive' },
       },
       uptime: `${9 + i} days, 4:17`,
       publicIp: b.host,

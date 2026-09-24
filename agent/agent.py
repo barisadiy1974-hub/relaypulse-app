@@ -37,6 +37,42 @@ def _sh(cmd, default=''):
     except Exception:
         return default
 
+def _service_states(names):
+    """systemctl state of each watched unit that actually exists on this host.
+
+    BUG FIX (2026-09-23), two ways round:
+    - `systemctl is-active` exits non-zero for anything not running (3 for
+      inactive/failed), and _sh() turns a non-zero exit into ''. So a stopped or
+      crashed service was DROPPED, never reported — the card went grey
+      'unknown' instead of red.
+    - A unit that does not exist also prints 'inactive'. Counting that would
+      make every ordinary server (no relay software, default watch list) look
+      broken. Units that are not-found or masked are skipped instead.
+    """
+    out = {}
+    for svc in names:
+        load = _sh(f'systemctl show -p LoadState --value {svc} 2>/dev/null').strip()
+        if load in ('', 'not-found', 'masked'):
+            continue
+        s = _sh(f'systemctl is-active {svc} 2>/dev/null || true').strip()
+        if s:
+            out[svc] = s
+    return out
+
+def _listening(ports):
+    """Local addresses (addr:port) listening on one of `ports`, TCP and UDP.
+
+    UDP is included so WireGuard, DNS or game servers count as up. BUG FIX
+    (2026-09-23): adding -u makes ss print a leading Netid column, so the old
+    fixed '{print $4}' silently read the Send-Q counter ('65535', '128')
+    instead of the address. The local address is now found as the first field
+    ending in :<digits> (the peer column ends in :*), and the port is compared
+    exactly, so watching 22 no longer matches :2222 as the old grep did.
+    """
+    want = set(ports)
+    raw = _sh("ss -tunlp 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i ~ /:[0-9]+$/) {print $i; break}}'")
+    return sorted({a for a in raw.split() if a.rsplit(':', 1)[-1] in want})
+
 def _read(path):
     try:
         with open(path) as f: return f.read()
@@ -99,14 +135,9 @@ def collect():
     cpu_count_raw = _sh("nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null").strip().split('\n')[0]
     cpu_count = int(cpu_count_raw) if cpu_count_raw.isdigit() else None
 
-    services = {}
-    for svc in SERVICES:
-        s = _sh(f'systemctl is-active {svc} 2>/dev/null').strip()
-        if s: services[svc] = s
+    services = _service_states(SERVICES)
 
-    port_re = '|'.join(PORTS) if PORTS else '9001|9030|9050|9051'
-    ports_raw = _sh("ss -tnlp 2>/dev/null | grep -E ':(%s)' | awk '{print $4}'" % port_re).strip()
-    ports = [p for p in ports_raw.splitlines() if p]
+    ports = _listening(PORTS or ['9001', '9030', '9050', '9051'])
 
     any_active = any(v in ('active', 'activating') for v in services.values())
     any_known = bool(services)
