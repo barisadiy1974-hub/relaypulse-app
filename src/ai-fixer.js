@@ -251,7 +251,7 @@ Response format (JSON ONLY, nothing else):
       action: 'ran',
       commandName: fallbackCmd.name,
       output: runResult.output || '',
-      reason: `AI API unavailable; fallback command selected by error type (${fallbackCmd.name}).`,
+      reason: `AI API unavailable (${e.message}); fallback command selected by error type (${fallbackCmd.name}).`,
       error: runResult.ok ? undefined : runResult.error,
     };
   }
