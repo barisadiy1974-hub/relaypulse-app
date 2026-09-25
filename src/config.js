@@ -66,9 +66,9 @@ const DEFAULTS = {
   licensed: false,
   licenseKey: '',
   autoFixCommands: [
-    { id: 1, name: 'Restart relay service', command: 'for svc in anon anon@default anyone anyone-relay tor-anon; do systemctl cat "$svc" >/dev/null 2>&1 && systemctl restart "$svc" && echo "restarted: $svc" && break; done' },
-    { id: 2, name: 'Check service status', command: 'for svc in anon anon@default anyone anyone-relay tor-anon; do s=$(systemctl is-active "$svc" 2>/dev/null); [ -n "$s" ] && echo "$svc=$s"; done' },
-    { id: 3, name: 'Last 50 log lines', command: 'journalctl -u anon -n 50 --no-pager 2>/dev/null || journalctl -u anyone-relay -n 50 --no-pager 2>/dev/null || echo "(log not found)"' },
+    { id: 1, name: 'Restart watched service', command: 'for svc in $WATCHED; do systemctl cat "$svc" >/dev/null 2>&1 && systemctl restart "$svc" && echo "restarted: $svc" && break; done' },
+    { id: 2, name: 'Watched service status', command: 'for svc in $WATCHED; do s=$(systemctl is-active "$svc" 2>/dev/null); [ -n "$s" ] && echo "$svc=$s"; done' },
+    { id: 3, name: 'Last 50 log lines', command: 'for svc in $WATCHED; do systemctl cat "$svc" >/dev/null 2>&1 && { journalctl -u "$svc" -u "$svc@*" -n 50 --no-pager; exit 0; }; done; echo "(log not found)"' },
     { id: 5, name: 'Restart SSH service', command: 'systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null; echo "ssh=$(systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null)"' },
     { id: 12, name: 'Disk usage', command: 'df -h / /var /tmp 2>/dev/null' },
     { id: 13, name: 'RAM and load', command: 'free -m 2>/dev/null || vm_stat; uptime' },
@@ -81,6 +81,19 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+// The relay-only versions ids 1-3 shipped with. An untouched one becomes the
+// $WATCHED version (same commands for a relay fleet); an edited one is kept.
+const LEGACY_COMMANDS = {
+  1: 'for svc in anon anon@default anyone anyone-relay tor-anon; do systemctl cat "$svc" >/dev/null 2>&1 && systemctl restart "$svc" && echo "restarted: $svc" && break; done',
+  2: 'for svc in anon anon@default anyone anyone-relay tor-anon; do s=$(systemctl is-active "$svc" 2>/dev/null); [ -n "$s" ] && echo "$svc=$s"; done',
+  3: 'journalctl -u anon -n 50 --no-pager 2>/dev/null || journalctl -u anyone-relay -n 50 --no-pager 2>/dev/null || echo "(log not found)"',
+};
+function upgradeLegacyCommand(c) {
+  if (!c || LEGACY_COMMANDS[c.id] !== c.command) return c;
+  const fresh = DEFAULTS.autoFixCommands.find(d => d.id === c.id);
+  return fresh ? { ...fresh } : c;
+}
+
 function buildDefaults(data = {}) {
   return {
     ...clone(DEFAULTS),
@@ -90,7 +103,7 @@ function buildDefaults(data = {}) {
     // kalıcı olarak boşaltıyor ve AI Auto-Fix hem canlıda hem "Test AI"de
     // "Komut listesi bos" diyerek sessizce ölüyor.
     autoFixCommands: Array.isArray(data.autoFixCommands) && data.autoFixCommands.length
-      ? data.autoFixCommands
+      ? data.autoFixCommands.map(upgradeLegacyCommand)
       : clone(DEFAULTS.autoFixCommands),
     servers: Array.isArray(data.servers) ? data.servers : clone(DEFAULTS.servers),
   };

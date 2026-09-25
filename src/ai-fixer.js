@@ -21,6 +21,13 @@ async function fetchWithTimeout(url, opts) {
   }
 }
 
+// The raw provider body ("OpenAI API 401: {...}") said nothing useful; say what to do.
+function apiError(provider, status, text) {
+  if (status === 401 || status === 403) return new Error(`${provider} refused the API key. Check it under Settings › AI Auto-Fix.`);
+  if (status === 429) return new Error(`${provider} is rate-limiting this key, or the account has no credit left.`);
+  return new Error(`${provider} API ${status}: ${String(text).slice(0, 200)}`);
+}
+
 async function callOpenAI(apiKey, userPrompt) {
   const res = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -36,7 +43,7 @@ async function callOpenAI(apiKey, userPrompt) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`OpenAI API ${res.status}: ${text.slice(0, 200)}`);
+    throw apiError('OpenAI', res.status, text);
   }
   const data = await res.json();
   return (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
@@ -58,7 +65,7 @@ async function callClaude(apiKey, userPrompt) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Claude API ${res.status}: ${text.slice(0, 200)}`);
+    throw apiError('Claude', res.status, text);
   }
   const data = await res.json();
   return (data.content && data.content[0] && data.content[0].text) || '';
@@ -67,7 +74,7 @@ async function callClaude(apiKey, userPrompt) {
 // Komut adları hem Türkçe hem İngilizce olabilir (varsayılan liste İngilizce).
 // Tek dile bağlı regex kullanılırsa fallback hiçbir zaman eşleşmez ve
 // AI API hatası aldığında auto-fix hiçbir komut çalıştırmaz.
-const RESTART_RELAY = /relay yeniden baslatma|relay zorunlu yenileme|restart.*relay|relay.*restart/i;
+const RESTART_RELAY = /relay yeniden baslatma|relay zorunlu yenileme|restart.*(relay|watched)|(relay|watched).*restart/i;
 const RESTART_SSH = /ssh enable ve restart|ssh servisi yeniden baslatma|restart.*ssh|ssh.*restart/i;
 
 // Salt okunur komutlarin ad kaliplari. Kullanicinin listesi degisebilir; ad
@@ -110,6 +117,16 @@ const FALLBACK_RULES = [
     pick: [RESTART_SSH, CHECK_STATUS] },
 ];
 
+// `$WATCHED` in a fix command = the "What counts as up" services, so the default
+// commands act on nginx or docker as readily as on a relay (same rule as the
+// iPhone app). With the default list they expand to exactly the old commands.
+const DEFAULT_WATCH = ['anon', 'anon@default', 'anyone', 'anyone-relay', 'tor-anon'];
+function expandWatched(command, cfg) {
+  const svcs = (Array.isArray(cfg && cfg.watchServices) ? cfg.watchServices : [])
+    .map(x => String(x).trim()).filter(x => /^[A-Za-z0-9@._-]+$/.test(x));
+  return String(command).split('$WATCHED').join((svcs.length ? svcs : DEFAULT_WATCH).join(' '));
+}
+
 function pickFallbackCommand(errorMsg, autoFixCommands) {
   const msg = String(errorMsg || '');
   if (!msg.trim()) return null;
@@ -133,6 +150,9 @@ function pickFallbackCommand(errorMsg, autoFixCommands) {
 // Main entry point. Returns { ok, action, commandName?, output?, reason, error? }
 // action is 'ran' | 'none' | undefined (on error)
 async function analyzeAndFix({ server, errorMsg, recentLogs, cfg, runCommandFn }) {
+  // Every command this incident runs goes through here, so $WATCHED is always expanded
+  // (automatic run, approval queue and dry-run alike).
+  const runWatched = (name, cmd) => runCommandFn(name, expandWatched(cmd, cfg));
   const { openaiApiKey, claudeApiKey, aiProvider, autoFixCommands = [] } = cfg;
   const useClaude = aiProvider === 'claude' || (!openaiApiKey && claudeApiKey);
   const apiKey = useClaude ? (claudeApiKey || cfg.aiApiKey) : (openaiApiKey || cfg.aiApiKey || claudeApiKey);
@@ -150,7 +170,7 @@ async function analyzeAndFix({ server, errorMsg, recentLogs, cfg, runCommandFn }
     if (!fallbackCmd) {
       return { ok: true, action: 'none', reason: 'No rule matched this error. Add an AI API key under Settings > AI Auto-Fix for log-based diagnosis.' };
     }
-    const runResult = await runCommandFn(server.name, fallbackCmd.command);
+    const runResult = await runWatched(server.name, fallbackCmd.command);
     return {
       ok: runResult.ok,
       action: 'ran',
@@ -189,7 +209,8 @@ async function analyzeAndFix({ server, errorMsg, recentLogs, cfg, runCommandFn }
     hasConfigError && 'LOG: Configuration error',
   ].filter(Boolean).join('\n');
 
-  const prompt = `You are a Linux server administration assistant monitoring Anyone Network relay servers.
+  const prompt = `You are a Linux server administration assistant. The server may run anything — a web or
+database server, containers, or an Anyone/Tor relay; tell which from the logs.
 Reply with JSON only, nothing else.
 
 Server: ${server.name}
@@ -224,7 +245,7 @@ Response format (JSON ONLY, nothing else):
   } catch (e) {
     const fallbackCmd = pickFallbackCommand(errorMsg, autoFixCommands);
     if (!fallbackCmd) return { ok: false, error: 'AI API error: ' + e.message };
-    const runResult = await runCommandFn(server.name, fallbackCmd.command);
+    const runResult = await runWatched(server.name, fallbackCmd.command);
     return {
       ok: runResult.ok,
       action: 'ran',
@@ -243,7 +264,7 @@ Response format (JSON ONLY, nothing else):
   } catch {
     const fallbackCmd = pickFallbackCommand(errorMsg, autoFixCommands);
     if (!fallbackCmd) return { ok: false, error: 'AI returned an invalid response: ' + responseText.slice(0, 150) };
-    const runResult = await runCommandFn(server.name, fallbackCmd.command);
+    const runResult = await runWatched(server.name, fallbackCmd.command);
     return {
       ok: runResult.ok,
       action: 'ran',
@@ -263,7 +284,7 @@ Response format (JSON ONLY, nothing else):
     return { ok: false, error: 'AI selected an unknown command: id=' + parsed.commandId };
   }
 
-  const runResult = await runCommandFn(server.name, cmd.command);
+  const runResult = await runWatched(server.name, cmd.command);
   let output = runResult.output || '';
   let commandName = cmd.name;
   let reason = parsed.reason || '';
@@ -276,7 +297,7 @@ Response format (JSON ONLY, nothing else):
   if (runResult.ok && looksLikeStatusCheck && stillDown) {
     const restartCmd = autoFixCommands.find(c => RESTART_RELAY.test(String(c.name || '')));
     if (restartCmd) {
-      const restartResult = await runCommandFn(server.name, restartCmd.command);
+      const restartResult = await runWatched(server.name, restartCmd.command);
       commandName = selectedName + ' -> ' + restartCmd.name;
       output = [output, restartResult.output || restartResult.error || ''].filter(Boolean).join('\n--- restart ---\n');
       reason = (reason ? reason + ' ' : '') + 'Kontrol sonucu servis down gorundu; restart komutu calistirildi.';
@@ -299,14 +320,14 @@ Response format (JSON ONLY, nothing else):
     // Sadece anon@default + anon'a bakmak bu kurulumlarda yanlış "inactive" döndürüp
     // gereksiz restart tetikliyordu. REMOTE_SCRIPT ile aynı dinamik tespiti kullan:
     // herhangi bir anon servisi active/activating ise "active" yaz, yoksa son durumu.
-    const verifyCmd = 'S=""; for svc in $(systemctl list-units --state=active,activating,failed --no-legend --plain "anon@*" "anon[0-9]*.service" 2>/dev/null | awk \'{print $1}\') anon anon@default anyone anyone-relay tor-anon; do st=$(systemctl is-active "$svc" 2>/dev/null || true); if [ "$st" = "active" ] || [ "$st" = "activating" ]; then echo active; exit 0; fi; [ -n "$st" ] && S="$st"; done; echo "${S:-inactive}"';
-    const verifyResult = await runCommandFn(server.name, verifyCmd);
+    const verifyCmd = 'S=""; for svc in $(systemctl list-units --state=active,activating,failed --no-legend --plain "anon@*" "anon[0-9]*.service" 2>/dev/null | awk \'{print $1}\') $WATCHED; do st=$(systemctl is-active "$svc" 2>/dev/null || true); if [ "$st" = "active" ] || [ "$st" = "activating" ]; then echo active; exit 0; fi; [ -n "$st" ] && S="$st"; done; echo "${S:-inactive}"';
+    const verifyResult = await runWatched(server.name, verifyCmd);
     // ÖNEMLI: SSH bağlantısı başarısız olduysa (ok=false), servisi kapalı sayma — yanlış restart döngüsünü önler
     const serviceStillDown = verifyResult.ok && /(inactive|failed|unknown)/i.test(verifyResult.output || 'inactive');
     if (serviceStillDown) {
       const restartCmd = autoFixCommands.find(c => RESTART_RELAY.test(String(c.name || '')));
       if (restartCmd) {
-        const restartResult = await runCommandFn(server.name, restartCmd.command);
+        const restartResult = await runWatched(server.name, restartCmd.command);
         commandName = selectedName + ' -> ' + restartCmd.name;
         output = [output, `[18s sonra kontrol: servis hala down] `, restartResult.output || restartResult.error || ''].filter(Boolean).join('\n');
         reason = (reason ? reason + ' ' : '') + 'Duzeltme sonrasi servis hala down; restart uygulandi.';
@@ -334,4 +355,4 @@ Response format (JSON ONLY, nothing else):
 
 // pickFallbackCommand denetim kosumundan test edilebilsin diye disa aciliyor:
 // anahtarsiz calisan tek karar noktasi bu, kalipla degil CALISTIRILARAK dogrulanmali.
-module.exports = { analyzeAndFix, pickFallbackCommand };
+module.exports = { analyzeAndFix, pickFallbackCommand, expandWatched };

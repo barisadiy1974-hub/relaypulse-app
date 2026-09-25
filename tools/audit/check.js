@@ -647,6 +647,29 @@ print(json.dumps([agent._listening(["22"]), agent._listening(["51820"]), agent._
     expect(r.ports.length === 2, 'UDP portlari ayristirilamadi: ' + JSON.stringify(r.ports));
   });
 
+  // 2026-09-25: fix commands use $WATCHED (the "What counts as up" list). With the
+  // default relay list they must expand to exactly the commands shipped before, the
+  // auto-restart rule must still find the renamed restart command, and an edited
+  // stored command must survive the upgrade.
+  await check('fix_commands_watched_list_keeps_relay_behaviour', () => {
+    const AF = require(path.join(ROOT, 'src/ai-fixer.js'));
+    const C = require(path.join(ROOT, 'src/config.js'));
+    const src = fs.readFileSync(path.join(ROOT, 'src/config.js'), 'utf8');
+    const legacy = eval('(' + src.match(/const LEGACY_COMMANDS = (\{[\s\S]*?\n\});/)[1] + ')');
+    const relayCfg = { watchServices: ['anon', 'anon@default', 'anyone', 'anyone-relay', 'tor-anon'] };
+    const d = C.DEFAULTS ? C.DEFAULTS.autoFixCommands : eval('[' + src.match(/autoFixCommands: \[([\s\S]*?)\n  \],/)[1] + ']');
+    for (const id of [1, 2]) {
+      const c = d.find(x => x.id === id);
+      expect(AF.expandWatched(c.command, relayCfg) === legacy[id], `id ${id} relay komutu degisti`);
+    }
+    expect(AF.expandWatched('for svc in $WATCHED; do :; done', { watchServices: ['nginx', 'x;rm -rf /'] }) === 'for svc in nginx; do :; done',
+      'guvensiz servis adi komuta girdi');
+    const aiSrc = fs.readFileSync(path.join(ROOT, 'src/ai-fixer.js'), 'utf8');
+    const RESTART = eval(aiSrc.match(/const RESTART_RELAY = (\/.*\/i);/)[1]);
+    expect(RESTART.test('Restart watched service') && RESTART.test('Restart relay service'), 'restart kurali yeni/eski adi bulamiyor');
+    expect(!/runCommandFn\(server/.test(aiSrc), 'bir komut $WATCHED acilmadan calisiyor');
+  });
+
   const pass = results.filter(Boolean).length;
   const sk = skipped.length ? `, ${skipped.length} SKIP` : '';
   console.log(`\n${results.length + skipped.length} kontrol: ${pass} PASS, ${results.length - pass} FAIL${sk}`);
