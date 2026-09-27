@@ -68,7 +68,7 @@ const DEFAULTS = {
   autoFixCommands: [
     { id: 1, name: 'Restart watched service', command: 'for svc in $WATCHED; do systemctl cat "$svc" >/dev/null 2>&1 && systemctl restart "$svc" && echo "restarted: $svc" && break; done' },
     { id: 2, name: 'Watched service status', command: 'for svc in $WATCHED; do s=$(systemctl is-active "$svc" 2>/dev/null); [ -n "$s" ] && echo "$svc=$s"; done' },
-    { id: 3, name: 'Last 50 log lines', command: 'for svc in $WATCHED; do systemctl cat "$svc" >/dev/null 2>&1 && { journalctl -u "$svc" -u "$svc@*" -n 50 --no-pager; exit 0; }; done; echo "(log not found)"' },
+    { id: 3, name: 'Last 50 log lines', command: 'for svc in $WATCHED; do systemctl cat "$svc" >/dev/null 2>&1 || continue; U=$(systemctl list-units --all --plain --no-legend "$svc.service" "$svc@*" 2>/dev/null | awk \'{printf "-u %s ", $1}\'); journalctl ${U:--u $svc} -n 50 --no-pager; exit 0; done; echo "(log not found)"' },
     { id: 5, name: 'Restart SSH service', command: 'systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null; echo "ssh=$(systemctl is-active ssh 2>/dev/null || systemctl is-active sshd 2>/dev/null)"' },
     { id: 12, name: 'Disk usage', command: 'df -h / /var /tmp 2>/dev/null' },
     { id: 13, name: 'RAM and load', command: 'free -m 2>/dev/null || vm_stat; uptime' },
@@ -86,10 +86,14 @@ function clone(value) {
 const LEGACY_COMMANDS = {
   1: 'for svc in anon anon@default anyone anyone-relay tor-anon; do systemctl cat "$svc" >/dev/null 2>&1 && systemctl restart "$svc" && echo "restarted: $svc" && break; done',
   2: 'for svc in anon anon@default anyone anyone-relay tor-anon; do s=$(systemctl is-active "$svc" 2>/dev/null); [ -n "$s" ] && echo "$svc=$s"; done',
-  3: 'journalctl -u anon -n 50 --no-pager 2>/dev/null || journalctl -u anyone-relay -n 50 --no-pager 2>/dev/null || echo "(log not found)"',
+  3: [
+    'journalctl -u anon -n 50 --no-pager 2>/dev/null || journalctl -u anyone-relay -n 50 --no-pager 2>/dev/null || echo "(log not found)"',
+    // 1.7.3 (22): `journalctl -u "$svc@*"` scanned the whole journal, ~35 s on a big one.
+    'for svc in $WATCHED; do systemctl cat "$svc" >/dev/null 2>&1 && { journalctl -u "$svc" -u "$svc@*" -n 50 --no-pager; exit 0; }; done; echo "(log not found)"',
+  ],
 };
 function upgradeLegacyCommand(c) {
-  if (!c || LEGACY_COMMANDS[c.id] !== c.command) return c;
+  if (!c || ![].concat(LEGACY_COMMANDS[c.id] || []).includes(c.command)) return c;
   const fresh = DEFAULTS.autoFixCommands.find(d => d.id === c.id);
   return fresh ? { ...fresh } : c;
 }

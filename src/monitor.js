@@ -1868,7 +1868,18 @@ echo "CHECK_WARNS_END"
   async fetchLogs(name, lines = 200) {
     const server = this.servers.find(s => s.name === name);
     if (!server) return { ok: false, error: 'server not found' };
-    const cmd = `journalctl -u anon -n ${Number(lines) || 200} --no-pager 2>/dev/null || tail -n ${Number(lines) || 200} /var/log/anon/notices.log 2>/dev/null || tail -n ${Number(lines) || 200} /var/log/anon/log 2>/dev/null || echo "(no anon logs found — check journalctl -u anon or /var/log/anon/)"`;
+    const n = Number(lines) || 200;
+    // The watched services' own journal (Settings > What counts as up), so the
+    // AI reads nginx's log on a web server instead of an empty anon one — the
+    // same source the iPhone app uses. `journalctl -u` exits 0 even for a unit
+    // that does not exist, hence the `systemctl cat` check before it. Instance
+    // units are listed first: `journalctl -u 'anon@*'` scans the whole journal
+    // (35 s on a 3.9 GB one, measured 2026-09-27), past this call's 10 s limit.
+    const cmd = `${this.watchPrefix}[ -n "$WATCH_SVCS" ] || WATCH_SVCS='anon anon@default anyone anyone-relay tor-anon'
+for svc in $WATCH_SVCS; do systemctl cat "$svc" >/dev/null 2>&1 || continue
+  U=$(systemctl list-units --all --plain --no-legend "$svc.service" "$svc@*" 2>/dev/null | awk '{printf "-u %s ", $1}')
+  journalctl \${U:--u $svc} -n ${n} --no-pager; exit 0; done
+tail -n ${n} /var/log/anon/notices.log 2>/dev/null || tail -n ${n} /var/log/anon/log 2>/dev/null || echo "(no log found for the watched services)"`;
     try {
       const out = await runSsh(server, cmd, 10000);
       const lines = out.split('\n');
