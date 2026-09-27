@@ -1321,6 +1321,14 @@ class Monitor extends EventEmitter {
         }
         return false;   // gercek kesinti: normal alarm yolu islesin
       }
+      // 2026-09-26: ten provider hosts went down at once; their relays sat in
+      // many different /24s, so the cluster rule missed it and the cards stayed
+      // green for hours. If the internet answers from this machine, our network
+      // is not the problem: let the normal alarm path run.
+      if (this._internetOk()) {
+        this._logDebug(`PROVIDER INCIDENT: ${distinct}/${total} cevapsiz ama internet calisiyor — alarmlar BASTIRILMADI`);
+        return false;
+      }
       this._networkSuspectUntil = now + windowMs;
       this._logDebug(`NETWORK SUSPECT: ${distinct}/${this.servers.length} relay aynı anda cevapsız — alarmlar ${Math.round(windowMs / 1000)}s bastırıldı`);
       return true;
@@ -1342,6 +1350,27 @@ class Monitor extends EventEmitter {
   /// allDown durumunda kumelenme aranmaz: filonun TAMAMI dusmusse (bu filoda
   /// neredeyse hepsi ayni saglayicida) yerel ag daha olasi ve alarm firtinasindan
   /// kacinmak daha degerli.
+  /// Last result of Apple's captive-portal check ("Success" only when this
+  /// machine really reaches the internet). Sync for the caller: a fresh probe
+  /// runs in the background at most once a minute, and a success lifts an open
+  /// suspicion window at once instead of waiting it out.
+  _internetOk() {
+    const now = Date.now();
+    if (!this._inetProbeAt || now - this._inetProbeAt > 60000) {
+      this._inetProbeAt = now;
+      const req = https.get('https://captive.apple.com/hotspot-detect.html', { timeout: 6000 }, (res) => {
+        let body = '';
+        res.on('data', (d) => { body += d; });
+        res.on('end', () => {
+          this._inetOk = body.includes('Success');
+          if (this._inetOk) this._networkSuspectUntil = 0;
+        });
+      });
+      req.on('timeout', () => req.destroy());
+      req.on('error', () => { this._inetOk = false; });
+    }
+    return !!this._inetOk;
+  }
   _failureCluster(failingNames) {
     if (!Array.isArray(failingNames) || failingNames.length < 2) return null;
     if (failingNames.length >= this.servers.length) return null;   // allDown -> yerel ag
