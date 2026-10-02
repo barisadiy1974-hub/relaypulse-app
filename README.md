@@ -37,7 +37,6 @@ exactly this list:
 - **Anyone Protocol:** `api.ec.anyone.tech`
 - **Your own public IP lookup:** `api.ipify.org`, `icanhazip.com`, `ifconfig.me`, `ipinfo.io`
 - **AI auto-fix (only if you supply a key):** `api.openai.com`, `api.anthropic.com`
-- **Purchase link, opened in your own browser:** `buy.stripe.com`
 
 Plus your own relays, over SSH, and their optional agent on `127.0.0.1:19191`
 through that SSH tunnel — both are hosts you configured yourself.
@@ -47,11 +46,10 @@ There is no embedded browser, no wallet or chain integration and no news feed.
 Your SSH credentials are never sent anywhere. They are used locally to open SSH
 connections from your own machine.
 
-## Licensing
+## Price
 
-License keys are verified **offline** with an Ed25519 signature. Only the public
-key is in this repository ([`src/license.js`](src/license.js)) — it can check a key
-but cannot create one. There is no activation server and no phone-home.
+The Windows and Linux builds are **free**: every server, no time limit, no
+license key, no account. The Mac and iPhone apps are on the App Store.
 
 ## Build from source
 

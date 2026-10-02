@@ -31,8 +31,7 @@ const iap = MAS ? require('./src/iap') : null;
 // Mac App Store free tier: monitor up to this many relays until the lifetime
 // unlock is bought. Nothing is deleted and no feature is crippled — the saved
 // server list stays intact, only the monitored slice is capped. Every other
-// build (Linux, Windows, direct-sale mac) is unlimited and keeps its own
-// trial + license key.
+// build (Linux, Windows) is free and unlimited.
 const FREE_RELAY_LIMIT = 3;
 function isEntitled() {
   return !MAS || iap.isPurchased();
@@ -1475,15 +1474,8 @@ function createWindow() {
   // free tier (FREE_RELAY_LIMIT relays), and the App Store purchase lifts the
   // cap. No trial clock, no license key, no external buy link (guideline 3.1.1);
   // purchase.html is reached from the tray menu.
-  // Everywhere else: the existing 14-day trial + Ed25519 license key.
-  let gateFile = 'index.html';
-  if (!MAS) {
-    const trialCfg = config.load();
-    const TRIAL_DAYS = 14;
-    const trialExpired = !isLicensed(trialCfg) && trialCfg.firstLaunchAt && (Date.now() - trialCfg.firstLaunchAt) > TRIAL_DAYS * 24 * 60 * 60 * 1000;
-    if (trialExpired) gateFile = 'trial-expired.html';
-  }
-  win.loadFile(path.join(__dirname, 'renderer', gateFile));
+  // Everywhere else (Windows, Linux) the app is free: no trial, no key.
+  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.on('did-finish-load', () => {
     win.webContents.send('window-visibility', { visible: win.isVisible() });
     // Renderer yeniden yüklendiğinde mevcut snapshot'ları hemen gönder.

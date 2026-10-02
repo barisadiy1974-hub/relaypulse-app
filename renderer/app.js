@@ -2065,19 +2065,9 @@ async function refreshLicenseStatus() {
       }
       return;
     }
-    const r = await window.api.getLicenseStatus();
-    if (r && r.licensed) {
-      row.innerHTML = '<span style="color:#4caf50;font-weight:600">✓ Licensed</span>';
-      if (entryRow) entryRow.style.display = 'none';
-    } else {
-      const TRIAL_DAYS = 14;
-      const start = (r && r.firstLaunchAt) || Date.now();
-      const expiresAt = start + TRIAL_DAYS * 24 * 60 * 60 * 1000;
-      const daysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
-      const expiresStr = new Date(expiresAt).toLocaleDateString();
-      row.innerHTML = `<span style="color:#f0c040">Trial mode — ${daysLeft} day${daysLeft === 1 ? '' : 's'} left</span><div class="hint" style="margin-top:2px">Trial expires on ${expiresStr}</div>`;
-      if (entryRow) entryRow.style.display = '';
-    }
+    // Windows / Linux: free, no trial and no key.
+    row.innerHTML = '<span style="color:#4caf50;font-weight:600">✓ Free — all servers, no time limit</span>';
+    if (entryRow) entryRow.style.display = 'none';
   } catch {}
 }
 refreshLicenseStatus();
