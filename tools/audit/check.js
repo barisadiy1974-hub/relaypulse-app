@@ -456,6 +456,24 @@ print(json.dumps(agent._service_states(["up", "down", "crashed", "gone", "hidden
   });
 
   // ---- 22. Fallback GUVENLIK: taninmayan/bilgi amacli imza servis yeniden baslatmasin ----
+  // Family apply / anonrc write with reload must never restart a relay (uptime
+  // multiplier), and must reload the unit that reads the file just written.
+  await check('anonrc_reload_never_restarts_and_targets_right_unit', async () => {
+    const src = fs.readFileSync(path.join(ROOT, 'src/monitor.js'), 'utf8');
+    const reloadBranch = (src.match(/\$\{reload \? `([^`]*)`/) || [])[1] || '';
+    expect(reloadBranch.includes('kill --kill-whom=main -s HUP'), 'reload yolunda HUP yok');
+    expect(!/systemctl restart/.test(reloadBranch), 'reload yolu restart\'a dusuyor');
+    const block = (src.match(/if \[ -n "\$ANONRC" \] && \[ -z "\$ANON_UNIT" \]; then\n([\s\S]*?)\nfi\n/) || [])[1];
+    expect(block, 'config->unit eslemesi bulunamadi');
+    const sh = block.replace(/\\\$/g, '$');
+    for (const [rc, unit] of [['/etc/anon/anonrc', 'anon@default.service'], ['/etc/anon/anonrc-2', 'anon2.service'],
+                              ['/etc/anon/instances/relayB/anonrc', 'anon@relayB.service']]) {
+      const out = require('child_process').execFileSync('bash', ['-c',
+        `systemctl() { echo loaded; }\nANONRC='${rc}'; ANON_UNIT=''\n${sh}\necho "$ANON_UNIT"`]).toString().trim();
+      expect(out === unit, `${rc} -> ${out} (beklenen ${unit})`);
+    }
+  });
+
   await check('fallback_never_restarts_on_diagnostic_signatures', async () => {
     const { pickFallbackCommand } = require(path.join(ROOT, 'src/ai-fixer.js'));
     const cmds = [

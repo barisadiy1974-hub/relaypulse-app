@@ -783,20 +783,22 @@ async function applyRelayFamilyPlan(onProgress = () => {}) {
     progress({ phase: 'writing', name: row.name, index: results.length + 1, total: preflight.length });
     try {
       const nextBody = buildMyFamilyBody(content, row.familyLine);
-      // reload keeps relay uptime; units that cannot reload are restarted.
+      // Reload only (HUP), never a restart: a restart resets the uptime multiplier.
       const write = await monitor.writeAnonrc(server, nextBody, { verify: true, restart: true, reload: true });
+      if (write.ok && write.pidChanged) write.error = `${write.restarted} was restarted instead of reloaded (PID changed)`;
       results.push({
         name: row.name,
-        ok: !!write.ok,
+        ok: !!write.ok && !write.pidChanged,
         fingerprint: row.fingerprint,
         familyCount: row.familyCount,
         familyLine: row.familyLine,
         verify: write.verify,
         restarted: write.restarted,
         active: write.active,
-        error: write.ok ? '' : (write.error || 'write fail'),
+        error: write.ok && !write.pidChanged ? '' : (write.error || 'write fail'),
       });
-      progress({ phase: write.ok ? 'done' : 'failed', name: row.name, index: results.length, total: preflight.length, error: write.ok ? '' : (write.error || 'write fail') });
+      const done = write.ok && !write.pidChanged;
+      progress({ phase: done ? 'done' : 'failed', name: row.name, index: results.length, total: preflight.length, error: done ? '' : (write.error || 'write fail') });
     } catch (e) {
       results.push({ name: row.name, ok: false, error: e.message, familyLine: row.familyLine });
       progress({ phase: 'failed', name: row.name, index: results.length, total: preflight.length, error: e.message });
@@ -2068,6 +2070,11 @@ ipcMain.handle('fleet:exportForPhone', async () => {
       agentPort: Number(s.agentPort) || 19191,
       agentScheme: String(s.agentScheme || 'https').toLowerCase(),
       agentToken: s.agentToken || '',
+      // Without these the phone dropped a second relay on the same IP into
+      // the first relay's card, and used port 22 for hosts on 2222.
+      sshUser: s.user || 'root',
+      sshPort: Number(s.port) || 22,
+      instance: s.instance || '',
     }));
   const payload = {
     exportedAt: Date.now(),

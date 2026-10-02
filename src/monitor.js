@@ -126,6 +126,23 @@ if [ -z "$ANONRC" ] && [ -n "$LOCAL_IP" ]; then
     grep -q "^Address $LOCAL_IP" "$rc" 2>/dev/null && ANONRC="$rc" && break
   done
 fi
+if [ -z "$ANONRC" ]; then
+  for p in /etc/anon/anonrc /usr/local/etc/anon/anonrc /etc/tor/torrc; do
+    [ -f "$p" ] && ANONRC="$p" && break
+  done
+fi
+# An Address match picks the config but not its unit, and the reload then
+# went to the first anon unit on the box: the second relay's anonrc-2 was
+# written while the first relay's anon1 was reloaded, so the second relay
+# never took the new family.
+if [ -n "$ANONRC" ] && [ -z "$ANON_UNIT" ]; then
+  case "$ANONRC" in
+    /etc/anon/anonrc) ANON_UNIT="anon@default.service" ;;
+    /etc/anon/anonrc-*) ANON_UNIT="anon\${ANONRC##*-}.service" ;;
+    /etc/anon/instances/*/anonrc) ANON_UNIT=\${ANONRC#/etc/anon/instances/}; ANON_UNIT="anon@\${ANON_UNIT%/anonrc}.service" ;;
+  esac
+  case "$(systemctl show -p LoadState --value "$ANON_UNIT" 2>/dev/null)" in ''|not-found|masked) ANON_UNIT="" ;; esac
+fi
 `;
 
 const REMOTE_SCRIPT = `
@@ -1625,8 +1642,9 @@ printf '\n===ANONRC_END===\n')`;
   //
   // Returns { ok, path, verify, restarted, output }.
   async writeAnonrc(server, content, opts = {}) {
-    // reload: re-read the config without a restart where the unit supports it
-    // (keeps relay uptime); units without ExecReload (anon1/anon2) fall back to restart.
+    // reload: re-read the config without a restart (keeps relay uptime). Units
+    // without ExecReload (anon1/anon2) get HUP on the main process instead; a
+    // restart would reset the uptime multiplier and halve that relay's reward.
     const { restart = true, verify = true, reload = false } = opts;
     // Güvenlik tabanı: boş/çok kısa ya da temel yönergesi olmayan içerik canlı
     // anonrc'yi ezip relay'i kimliksiz (Nickname/ORPort/Address/MyFamily'siz)
@@ -1684,7 +1702,8 @@ SVC_LIST="$ANON_UNIT"
 [ -n "$SVC_LIST" ] || SVC_LIST="$MULTI_SVCS4 $NAMED_SVCS4 anon.service anon anon@default anyone anyone-relay tor-anon"
 for svc in $SVC_LIST; do
   if systemctl status "$svc" >/dev/null 2>&1; then
-    ${reload ? `systemctl reload "$svc" 2>/dev/null || systemctl restart "$svc"` : `systemctl restart "$svc"`}
+    ${reload ? `PID_BEFORE=$(systemctl show -p MainPID --value "$svc" 2>/dev/null)
+    systemctl reload "$svc" 2>/dev/null || systemctl kill --kill-whom=main -s HUP "$svc"` : `systemctl restart "$svc"`}
     RESTARTED="$svc"
     break
   fi
@@ -1693,6 +1712,8 @@ sleep 2
 ACTIVE=unknown
 if [ "$RESTARTED" != none ]; then
   ACTIVE=$(systemctl is-active "$RESTARTED" 2>/dev/null || echo unknown)
+  ${reload ? `echo "PID_BEFORE=$PID_BEFORE"
+  echo "PID_AFTER=$(systemctl show -p MainPID --value "$RESTARTED" 2>/dev/null)"` : ''}
 fi
 echo "ACTIVE=$ACTIVE"` : ''}
 echo "ANONRC=$ANONRC"
@@ -1708,6 +1729,9 @@ echo "RESTARTED=$RESTARTED")`;
         active: (out.match(/ACTIVE=(\S+)/) || [])[1] || '',
         output: out.trim(),
       };
+      const pidBefore = (out.match(/PID_BEFORE=(\d+)/) || [])[1];
+      const pidAfter = (out.match(/PID_AFTER=(\d+)/) || [])[1];
+      if (pidBefore && pidAfter) info.pidChanged = pidBefore !== pidAfter;
       return info;
     } catch (e) {
       return { ok: false, error: e.message };
