@@ -2141,6 +2141,7 @@ if (connectionModeEl) {
     // Değişikliği canlıya uygula — yeniden başlatmayı bekletme.
     try { await window.api.startMonitor(connectionModeEl.value); } catch {}
     refreshHeaderBadges();
+    renderSettingsFeatureCards();
   });
 }
 async function refreshLicenseStatus() {
@@ -2397,6 +2398,9 @@ $('#saveSettings').addEventListener('click', async () => {
   updateNetworkBadge();
   renderQuickControls();
   renderMonitoringPreview();
+  // The summary cards under Server Connections ("Polling interval 120 seconds")
+  // kept their old values until the next restart, so a saved change looked lost.
+  renderSettingsFeatureCards();
   pushOpsEvent(`Default network saved as ${defaultNetworkMode === 'direct' ? 'Direct' : 'Anyone'}`);
   flash($('#saveSettings'), 'Saved');
 });
