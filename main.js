@@ -2048,7 +2048,8 @@ ipcMain.handle('servers:save', (_e, servers) => {
   cfg.servers = servers;
   config.save(cfg);
   dashboardTrackerFingerprintCache = { updatedAt: '', rows: [] };
-  monitor.updateServers(entitledServers(servers));
+  // Diskteki hali (IP alias'tan host'a tasinmis) izlensin, renderer'in gonderdigi degil.
+  monitor.updateServers(entitledServers(config.load().servers));
   return true;
 });
 // RelayPulse iPhone uygulamasi icin filo tanimini disari aktar. safeStorage ile

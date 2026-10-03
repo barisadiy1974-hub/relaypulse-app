@@ -1891,8 +1891,9 @@ function renderSelectedRelayDetail() {
       const alias = row.querySelector('input[data-f="sshAlias"]');
       // Keep the existing connection style: an alias-only relay remains an
       // alias-only relay; direct-host relays keep using their host field.
-      if (host && host.value.trim()) host.value = val;
-      else if (alias) alias.value = val;
+      // A new relay (both empty) gets a host — an IP put into sshAlias was
+      // handed to ~/.ssh/config and never connected.
+      if (alias && alias.value.trim() && !(host && host.value.trim())) alias.value = val;
       else if (host) host.value = val;
     } else {
       const input = row.querySelector(`input[data-f="${field}"]`);

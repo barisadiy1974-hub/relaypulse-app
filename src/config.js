@@ -101,6 +101,22 @@ function upgradeLegacyCommand(c) {
   return fresh ? { ...fresh } : c;
 }
 
+// Ayarlar'da yeni relay'in "Host or SSH Alias" alanina yazilan IP, host bos
+// oldugu icin sshAlias'a gidiyordu (2026-10-04). Anahtarla baglanirken alias
+// ~/.ssh/config'e birakiliyor: config yoksa ssh relay ADINA, varsa kullanicinin
+// kendi Linux hesabiyla baglaniyordu; yeni relay hic baglanamiyordu. Bir IP
+// hicbir zaman alias degildir, host'a tasinir.
+function looksLikeIp(value) {
+  const v = String(value || '').trim();
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(v) || (v.includes(':') && /^[0-9a-f:.]+$/i.test(v));
+}
+function normalizeServer(s) {
+  if (s && !String(s.host || '').trim() && looksLikeIp(s.sshAlias)) {
+    return { ...s, host: String(s.sshAlias).trim(), sshAlias: '' };
+  }
+  return s;
+}
+
 function buildDefaults(data = {}) {
   return {
     ...clone(DEFAULTS),
@@ -112,7 +128,7 @@ function buildDefaults(data = {}) {
     autoFixCommands: Array.isArray(data.autoFixCommands) && data.autoFixCommands.length
       ? data.autoFixCommands.map(upgradeLegacyCommand)
       : clone(DEFAULTS.autoFixCommands),
-    servers: Array.isArray(data.servers) ? data.servers : clone(DEFAULTS.servers),
+    servers: Array.isArray(data.servers) ? data.servers.map(normalizeServer) : clone(DEFAULTS.servers),
   };
 }
 
