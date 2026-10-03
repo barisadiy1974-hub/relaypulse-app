@@ -25,13 +25,35 @@ const SANDBOX = process.mas === true || process.env.RP_SANDBOX === '1';
 const sandboxTransport = SANDBOX ? require('./ssh2-transport') : null;
 const certPin = require('./cert-pin');
 
+// Windows'ta HOME genelde tanimsizdir; os.homedir() her platformda dogru ev
+// klasorunu verir (C:\Users\<ad>).
+const IS_WIN = process.platform === 'win32';
+const HOME_DIR = os.homedir();
+
 // Per-app ControlMaster socket dir. Reusing a single TCP/SSH channel per host
 // (instead of a fresh connection every 3s) drops load on both sides by 20x+
 // and avoids tripping fail2ban / sshd MaxStartups on the remote.
 // macOS caps Unix socket paths around 104 chars. Keep this directory short so
 // longer server names still fit when SSH appends its temporary suffix.
+// Windows OpenSSH ControlMaster desteklemez (bkz. shouldAvoidControlMaster);
+// orada /tmp de yoktur, dizin hic olusturulmaz.
 const CM_DIR = '/tmp/am-ssh';
-try { fs.mkdirSync(CM_DIR, { recursive: true, mode: 0o700 }); } catch {}
+if (!IS_WIN) {
+  try { fs.mkdirSync(CM_DIR, { recursive: true, mode: 0o700 }); } catch {}
+}
+
+// Mac'te kaydedilmis anahtar yollari (/Users/<ad>/.ssh/x, ~/.ssh/x) Windows'ta
+// yoktur. Ayni dosya adini bu makinenin ~/.ssh klasorunde ara, boylece Mac'ten
+// tasinan filo yapilandirmasi elle duzenlenmeden calisir.
+function resolveKeyPath(key) {
+  if (!key) return key;
+  if (key === '~' || key.startsWith('~/')) return path.join(HOME_DIR, ...key.slice(2).split('/'));
+  if (IS_WIN && key.startsWith('/')) {
+    const m = key.match(/\/\.ssh\/(.+)$/);
+    if (m) return path.join(HOME_DIR, '.ssh', ...m[1].split('/'));
+  }
+  return key;
+}
 
 function controlSocketPath(server) {
   const key = [
@@ -58,6 +80,9 @@ function serverConnectionKey(server) {
 }
 
 function shouldAvoidControlMaster(server) {
+  // Windows OpenSSH'ta ControlMaster yok: her baglanti
+  // "getsockname failed: Not a socket" ile duser.
+  if (IS_WIN) return true;
   return !!(server && server.sshNoMux);
 }
 
@@ -402,8 +427,8 @@ function _runSshViaPasswordMaster(server, remoteCmd, timeoutMs) {
 function buildSshArgs(server, extra = [], opts = {}) {
   const hasPassword = !!server.password;
   const reuseControlMaster = opts.reuseControlMaster !== false && !shouldAvoidControlMaster(server);
-  const defaultKey = path.join(process.env.HOME || '', '.ssh', 'id_ed25519');
-  const sshConfigExists = fs.existsSync(path.join(process.env.HOME || '', '.ssh', 'config'));
+  const defaultKey = path.join(HOME_DIR, '.ssh', 'id_ed25519');
+  const sshConfigExists = fs.existsSync(path.join(HOME_DIR, '.ssh', 'config'));
   const args = [
     '-o', 'ConnectTimeout=8',
     '-o', `ConnectionAttempts=${_sshRetryCount}`,
@@ -419,7 +444,7 @@ function buildSshArgs(server, extra = [], opts = {}) {
   } else {
     // Key auth path: BatchMode (never prompt)
     args.push('-o', 'BatchMode=yes');
-    if (server.key) args.push('-i', server.key);
+    if (server.key) args.push('-i', resolveKeyPath(server.key));
     else if (fs.existsSync(defaultKey)) args.push('-i', defaultKey);
     if (reuseControlMaster) {
       // Reuse ONE TCP/SSH channel per host — critical to avoid rate-limit on the
@@ -713,6 +738,9 @@ function runSsh(server, remoteCmd, timeoutMs = 10000) {
         }
         reject(new Error(normalized));
       });
+      // Windows OpenSSH, stdin acik bir pipe oldugu surece uzak komut bitse bile
+      // cikmaz; her yoklama zaman asimina duser. Bu yol stdin kullanmiyor.
+      if (IS_WIN && child.stdin) child.stdin.end();
     };
     tryRun(true);
   });
