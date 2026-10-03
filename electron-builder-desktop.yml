@@ -27,10 +27,19 @@ directories:
   output: dist-public
 
 linux:
+  # .deb yaninda: AppImage Ubuntu 22.04+ uzerinde libfuse2 olmadan acilmiyor,
+  # 24.04'te de AppArmor Electron sandbox'ini engelleyip uygulamayi sessizce
+  # kapatiyor. .deb normal bir program gibi kurulur, FUSE istemez ve kurulum
+  # betigi chrome-sandbox iznini dogru ayarlar.
   target:
     - AppImage
+    - deb
   icon: assets/icon.png
   category: Utility
+  synopsis: SSH monitoring and AI auto-fix for relay fleets
+  description: Monitor every Linux server you run over SSH, with alerts and AI auto-fix.
+  # deb paketi bir bakimci ister; sitedeki destek adresi.
+  maintainer: RelayPulse <baris.adiy1974@gmail.com>
 
 win:
   target:

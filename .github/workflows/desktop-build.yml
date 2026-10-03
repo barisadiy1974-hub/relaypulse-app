@@ -31,7 +31,16 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci
+      # .deb icin fpm. electron-builder'in indirdigi fpm yalnizca x64; arm64
+      # runner'da sistem fpm'i kullanilir, iki Linux isi de ayni yoldan gecsin.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev build-essential
+          sudo gem install --no-document fpm
       - run: npx electron-builder --config electron-builder-desktop.yml ${{ matrix.target }} --publish never
+        env:
+          USE_SYSTEM_FPM: ${{ runner.os == 'Linux' && 'true' || '' }}
       # Paketleme main.js'i calistirmaz: v1.8.0'da network-map/ klasoru depoda olmadigi
       # icin paketler acilista "Cannot find module" ile duserek yayinlandi ve CI yesildi.
       # Bu adim asar'in icine bakip her relatif require hedefinin paketlendigini dogrular.
@@ -42,6 +51,7 @@ jobs:
           path: |
             dist-public/*.exe
             dist-public/*.AppImage
+            dist-public/*.deb
           if-no-files-found: error
 
   release:
