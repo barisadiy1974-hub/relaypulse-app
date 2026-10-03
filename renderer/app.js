@@ -1867,9 +1867,12 @@ function renderSelectedRelayDetail() {
   const snap = snaps.get(srv.name)?.last;
   const state = snap ? getEffectiveRelayState(snap) : 'waiting';
   const stateText = state === 'online' ? 'Online' : state === 'stale' ? 'Warning' : state === 'offline' ? 'Offline' : 'Waiting';
+  const isNew = srv.name === pendingNewRelay;
   pane.innerHTML = `
-    <div class="relay-edit-title"><div><span class="state-dot ${state}"></span>Editing: ${escapeHtml(srv.name)}</div><button class="detail-close" title="Close">×</button></div>
-    <p class="hint">These fields change <b>${escapeHtml(srv.name)}</b>. To add another relay, use <b>+ Add Server</b> instead.</p>
+    <div class="relay-edit-title"><div><span class="state-dot ${state}"></span>${isNew ? 'New relay' : 'Editing: ' + escapeHtml(srv.name)}</div><button class="detail-close" title="Close">×</button></div>
+    <p class="hint">${isNew
+      ? 'Fill in the fields, then press <b>Add Relay</b>.'
+      : `These fields change <b>${escapeHtml(srv.name)}</b>. To add another relay, use <b>+ Add Server</b> instead.`}</p>
     <div class="relay-detail-status ${state}"><span>${stateText}</span><small>${snap?.ts ? 'Last check ' + fmtSince(snap.ts) : 'Awaiting first check'}</small></div>
     <label>Relay name<input data-detail-f="name" value="${escAttr(srv.name || '')}" autocomplete="off"></label>
     <label>Host or SSH Alias<input data-detail-f="hostAlias" value="${escAttr(srv.host || srv.sshAlias || '')}" placeholder="relay.example.com"></label>
@@ -1879,7 +1882,7 @@ function renderSelectedRelayDetail() {
     <label>Password<input data-detail-f="password" type="password" value="${escAttr(srv.password || '')}" placeholder="Optional — e.g. the root password from your VPS provider" autocomplete="new-password"></label>
     <p class="hint">Log in with ${appIsMas ? 'the imported SSH key (Import SSH key, below the list)' : 'an SSH key'} or with this server's password — the same two choices as on iPhone. ${appIsMas ? 'The key is tried first' : 'A password, when set, is used instead of the key'}; the password is stored encrypted on this computer.</p>
     <label>Anon instance<input data-detail-f="instance" value="${escAttr(srv.instance || '')}" placeholder="Only when one IP runs two relays" autocomplete="off"></label>
-    <div class="relay-detail-actions"><button class="detail-test" type="button">Test connection</button><button class="detail-save primary" type="button">Save Relay</button></div>`;
+    <div class="relay-detail-actions"><button class="detail-test" type="button">Test connection</button><button class="detail-save primary" type="button">${isNew ? 'Add Relay' : 'Save Relay'}</button></div>`;
 
   const updateDetail = (event) => {
     const field = event.currentTarget.dataset.detailF;
@@ -2200,14 +2203,35 @@ $('#navNetworkMapBtn')?.addEventListener('click', async (e) => {
   finally { btn.disabled = false; }
 });
 
+// "+ Add Server" ile eklenip henuz kaydedilmemis relay (2026-10-04). Kullanici
+// bilgileri yazip "+ Add Server"a basinca bunu gonder dugmesi saniyor; her
+// basis bir bos relay daha ekliyordu ve bos olan da kaydediliyordu.
+let pendingNewRelay = '';
+const isBlankNewRelay = (s) => /^new-relay(-\d+)?$/.test(s.name || '')
+  && !s.host && !s.sshAlias && !s.key && !s.password;
+
 $('#addServer').addEventListener('click', () => {
+  const pendingRow = pendingNewRelay
+    && [...$$('#serversTable tbody tr')].find(tr => tr.dataset.origName === pendingNewRelay);
+  if (pendingRow) {
+    const val = (f) => (pendingRow.querySelector(`input[data-f="${f}"]`)?.value || '').trim();
+    // Bilgiler girilmis: bu tiklama "ekle" demek, kaydet.
+    if (val('host') || val('sshAlias')) { $('#saveServers')?.click(); return; }
+    // Hala bos: ikinci bir bos relay acma, ayni formu goster.
+    selectedSettingsServerName = pendingRow.dataset.serverName || pendingNewRelay;
+    renderSelectedRelayDetail();
+    $('#selectedRelayDetail [data-detail-f="hostAlias"]')?.focus();
+    return;
+  }
   const base = 'new-relay';
   let suffix = 1;
   let name = base;
   while (servers.some(s => s.name === name)) name = `${base}-${suffix++}`;
   servers.push({ name, sshAlias: '', user: '', host: '', port: 22, key: '', password: '' });
+  pendingNewRelay = name;
   selectedSettingsServerName = name;
   renderSettings();
+  $('#selectedRelayDetail [data-detail-f="hostAlias"]')?.focus();
 });
 
 function collectServersFromSettingsRows() {
@@ -2236,13 +2260,15 @@ function collectServersFromSettingsRows() {
       obj.agentScheme = existing.agentScheme;
     }
     return obj;
-  }).filter(s => s.name);
+  }).filter(s => s.name && !isBlankNewRelay(s));
 }
 
 $('#saveServers').addEventListener('click', async () => {
   const next = collectServersFromSettingsRows();
   servers = next;
   await window.api.saveServers(next);
+  pendingNewRelay = '';
+  renderSettings();
   renderCards();
   populateLogServerSelect();
   flash($('#saveServers'), 'Saved');

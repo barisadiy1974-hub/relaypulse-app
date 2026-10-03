@@ -296,8 +296,9 @@
                   <tbody></tbody>
                 </table>
               </div>
-              <p class="hint relay-connection-note">In the sandbox build, SSH keys and passwords are stored in the encrypted app vault; <code>~/.ssh</code> is not read.</p>
-              <button id="importSshKey" type="button">Import SSH key</button>
+              <!-- Yalnizca App Store (sandbox) surumu: Linux/Windows'ta bu dugme hata veriyor, not da yanlis. -->
+              <p class="hint relay-connection-note only-mas">In the sandbox build, SSH keys and passwords are stored in the encrypted app vault; <code>~/.ssh</code> is not read.</p>
+              <button id="importSshKey" class="only-mas" type="button">Import SSH key</button>
             </div>
             <aside id="selectedRelayDetail" class="relay-edit-pane" aria-label="Selected server editor"></aside>
           </div>

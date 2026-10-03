@@ -117,6 +117,13 @@ function normalizeServer(s) {
   return s;
 }
 
+// "+ Add Server"a bilgi girilmeden basilinca kaydedilen bos relay'ler
+// (new-relay, new-relay-1 ...). Hic baglanamaz, sadece offline alarmi uretir.
+function isBlankNewRelay(s) {
+  return !!s && /^new-relay(-\d+)?$/.test(String(s.name || ''))
+    && !s.host && !s.sshAlias && !s.key && !s.password && !s.passwordRef;
+}
+
 function buildDefaults(data = {}) {
   return {
     ...clone(DEFAULTS),
@@ -128,7 +135,9 @@ function buildDefaults(data = {}) {
     autoFixCommands: Array.isArray(data.autoFixCommands) && data.autoFixCommands.length
       ? data.autoFixCommands.map(upgradeLegacyCommand)
       : clone(DEFAULTS.autoFixCommands),
-    servers: Array.isArray(data.servers) ? data.servers.map(normalizeServer) : clone(DEFAULTS.servers),
+    servers: Array.isArray(data.servers)
+      ? data.servers.filter((s) => !isBlankNewRelay(s)).map(normalizeServer)
+      : clone(DEFAULTS.servers),
   };
 }
 
