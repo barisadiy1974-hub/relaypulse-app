@@ -26,6 +26,12 @@ files:
 directories:
   output: dist-public
 
+# Yeni AppImage calisma zamani: eskisi libfuse2 istiyordu ve Ubuntu 22.04+
+# onu kurulu getirmiyor; AppImage cift tiklayinca hicbir sey demeden kapaniyordu
+# ("dlopen(): error loading libfuse.so.2", temiz Ubuntu 24.04 ve 22.04'te olculdu).
+toolsets:
+  appimage: "1.0.3"
+
 linux:
   # .deb yaninda: AppImage Ubuntu 22.04+ uzerinde libfuse2 olmadan acilmiyor,
   # 24.04'te de AppArmor Electron sandbox'ini engelleyip uygulamayi sessizce
