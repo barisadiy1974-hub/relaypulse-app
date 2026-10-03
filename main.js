@@ -2738,11 +2738,59 @@ ipcMain.handle('autofix:test', async (_e, s) => {
   };
 });
 
+// Windows: Terminal.app / gnome-terminal yok. Komut gecici bir .cmd dosyasina
+// yazilip yeni bir konsol penceresinde acilir. Cok satirli remoteCmd cmd.exe'den
+// gecerken | > & ve satir sonlarinda bolunurdu; bu yuzden base64 olarak tek bir
+// cift tirnakli argumanda gonderilir ve relay'de cozulur. sshpass Windows'ta
+// olmadigindan sifreli relay'de ssh sifreyi pencerede kendisi sorar — sifre
+// hicbir dosyaya yazilmaz.
+function openRemoteTerminalWindows(s, remoteCmd, tag) {
+  const { resolveKeyPath } = require('./src/monitor');
+  let target;
+  if (s.password && !s.key) target = `${s.user || 'root'}@${s.host || s.sshAlias || s.name}`;
+  else if (s.user && s.host) target = `${s.user}@${s.host}`;
+  else target = s.host || s.sshAlias || s.name;
+  // Hedef .cmd dosyasina ham yazilir; cmd.exe'nin ozel karakterlerine izin verme.
+  if (!/^[A-Za-z0-9._@:\[\]-]+$/.test(String(target))) {
+    return Promise.resolve({ ok: false, error: 'Unsupported characters in host or user: ' + target });
+  }
+  const args = ['-tt', '-o ConnectTimeout=8', '-o ServerAliveInterval=10', '-o StrictHostKeyChecking=accept-new'];
+  if (s.port && s.port !== 22) args.push(`-p ${Number(s.port)}`);
+  if (s.key) {
+    const keyPath = resolveKeyPath(s.key);
+    if (/["%]/.test(keyPath)) return Promise.resolve({ ok: false, error: 'Unsupported characters in key path: ' + keyPath });
+    args.push(`-i "${keyPath}"`, '-o IdentitiesOnly=yes');
+  }
+  const b64 = Buffer.from(String(remoteCmd), 'utf8').toString('base64');
+  const remote = `echo ${b64} | base64 -d > /tmp/rp-term.$$ && bash /tmp/rp-term.$$; rc=$?; rm -f /tmp/rp-term.$$; exit $rc`;
+  const label = String(`${tag} ${s.name}`).replace(/[^A-Za-z0-9 ._-]/g, '_');
+  const bat = [
+    '@echo off',
+    `title RelayPulse - ${label}`,
+    `echo ^>^> ${label} baglaniyor...`,
+    'echo.',
+    `ssh ${args.join(' ')} ${target} "${remote}"`,
+    'echo.',
+    'echo ^>^> cikti (rc=%ERRORLEVEL%) - pencereyi kapatabilirsin',
+    'pause >nul',
+    '(goto) 2>nul & del "%~f0"',
+  ].join('\r\n');
+  const tmpFile = path.join(require('os').tmpdir(), `relay-term-${Date.now()}.cmd`);
+  try {
+    fs.writeFileSync(tmpFile, bat);
+  } catch (e) {
+    return Promise.resolve({ ok: false, error: 'Could not write script file: ' + e.message });
+  }
+  return shell.openPath(tmpFile).then((err) => (err ? { ok: false, error: err } : { ok: true }));
+}
+
 // Open a remote interactive TUI in a new Terminal window.
 // macOS: osascript + Terminal.app
 // Linux: gnome-terminal / x-terminal-emulator / xterm
+// Windows: openRemoteTerminalWindows
 function openRemoteTerminal(server, remoteCmd, tag) {
   const s = server;
+  if (process.platform === 'win32') return openRemoteTerminalWindows(s, remoteCmd, tag);
   const port = s.port && s.port !== 22 ? `-p ${Number(s.port)} ` : '';
   let target;
   const sshOpts = '-tt -o ConnectTimeout=8 -o ServerAliveInterval=10 -o StrictHostKeyChecking=accept-new';

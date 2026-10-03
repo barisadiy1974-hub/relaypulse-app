@@ -1985,3 +1985,4 @@ tail -n ${n} /var/log/anon/notices.log 2>/dev/null || tail -n ${n} /var/log/anon
 
 module.exports = Monitor;
 module.exports.runSsh = runSsh;
+module.exports.resolveKeyPath = resolveKeyPath;
