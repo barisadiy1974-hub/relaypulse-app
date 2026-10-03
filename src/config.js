@@ -18,6 +18,9 @@ const DEFAULTS = {
   offlineAfter: 2,
   defaultNetworkMode: 'direct',
   connectionMode: 'https',
+  // Acilistaki "Connection Mode" sorusunda "Don't ask again" secildi mi.
+  // Once localStorage'daydi; Linux'ta kayboluyor ve soru her acilista geliyordu.
+  connectionModeConfirmed: false,
   // Hangi systemd servisinin ayakta olduguna bakilacak. Makine metrikleri
   // (CPU/RAM/disk/ag/uptime) her Linux sunucusunda calisir; servis durumu
   // icin bir ad gerekiyor ve o ad kullaniciya ait. Varsayilan liste eski

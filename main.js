@@ -411,9 +411,12 @@ function lookupFallbackFingerprint(map, server) {
   return '';
 }
 
-async function fetchAllRelayFingerprints() {
+// onlyNames: yalnizca bu relay'leri oku (sonradan eklenen / acilista ulasilamayan).
+// Verilmezse tum filo — family plani her zaman tum filoyu ister.
+async function fetchAllRelayFingerprints(onlyNames) {
   const cfg = config.load();
-  const servers = cfg.servers || [];
+  const wanted = Array.isArray(onlyNames) ? new Set(onlyNames) : null;
+  const servers = (cfg.servers || []).filter((s) => !wanted || wanted.has(s.name));
   const fallbackFingerprints = new Map();
   const fallbackPaths = [
     path.join(app.getPath('userData'), 'ALL_FINGERPRINTS.txt'),
@@ -2087,11 +2090,12 @@ ipcMain.handle('fleet:exportForPhone', async () => {
   }
   return { ok: true, filePath, count: servers.length, withToken: servers.filter((s) => s.agentToken).length };
 });
-ipcMain.handle('monitor:start', (_e, mode) => {
+ipcMain.handle('monitor:start', (_e, mode, dontAsk) => {
   const allowed = ['ssh', 'https'];
   const connectionMode = allowed.includes(mode) ? mode : 'https';
   const cfg = config.load();
   cfg.connectionMode = connectionMode;
+  if (typeof dontAsk === 'boolean') cfg.connectionModeConfirmed = dontAsk;
   config.save(cfg);
   monitor.connectionMode = connectionMode;
   if (!monitor._started) {
@@ -2181,6 +2185,7 @@ ipcMain.handle('settings:get', () => {
     alarmRepeatMinutes: Math.max(1, Math.min(60, Number(cfg.alarmRepeatMinutes) || 5)),
     ramWarnPct: Math.max(70, Math.min(99, Number(cfg.ramWarnPct) || 90)),
     connectionMode: cfg.connectionMode || 'https',
+    connectionModeConfirmed: !!cfg.connectionModeConfirmed,
     sshRetryCount: Math.max(1, Math.min(3, Number(cfg.sshRetryCount) || 2)),
     sshTimeoutMs: Math.max(0, Math.min(60000, Number(cfg.sshTimeoutMs) || 0)),
     offlineAfter: Math.max(1, Math.min(5, Number(cfg.offlineAfter) || 2)),
@@ -2240,8 +2245,8 @@ ipcMain.handle('relay:setupCheck', async (_e, name) => {
   if (!s) return { ok: false, error: 'Server not found: ' + name };
   return await monitor.setupHealthCheck(s);
 });
-ipcMain.handle('relay:fingerprints', async () => {
-  return await fetchAllRelayFingerprints();
+ipcMain.handle('relay:fingerprints', async (_e, names) => {
+  return await fetchAllRelayFingerprints(Array.isArray(names) ? names.map(String) : undefined);
 });
 ipcMain.handle('relay:familyPlan', async () => {
   return await buildRelayFamilyPlan();

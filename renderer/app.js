@@ -674,18 +674,24 @@ $('#hideBtn').addEventListener('click', () => window.api.hideWindow());
   bindDashboardControls();
   populateLogServerSelect();
   refreshRelayFingerprintCache();
+  setInterval(refreshMissingRelayFingerprints, FINGERPRINT_RETRY_MS);
   refreshNetworkStats();
   networkStatsTimer = setInterval(refreshNetworkStats, 60000);
 
   // Önce kullanıcı bağlantı modunu seçsin, sonra monitoring başlasın.
   // Bir kez "bir daha sorma" dendiyse dialog atlanır — mod Ayarlar > İzleme'den
   // her zaman değiştirilebilir.
-  let connModeConfirmed = false;
-  try { connModeConfirmed = localStorage.getItem('rp_connModeConfirmed') === '1'; } catch {}
-  const chosenMode = connModeConfirmed
-    ? (settings.connectionMode || 'https')
-    : await showConnectionModeDialog(settings.connectionMode || 'https');
-  await window.api.startMonitor(chosenMode);
+  // Secim config dosyasinda tutuluyor (2026-10-03): localStorage Linux'ta
+  // kaybolup soru her acilista geliyordu. Eski localStorage kaydi olanlar
+  // bir kez daha sorulmasin diye o da okunup config'e tasiniyor.
+  let legacyConfirmed = false;
+  try { legacyConfirmed = localStorage.getItem('rp_connModeConfirmed') === '1'; } catch {}
+  if (settings.connectionModeConfirmed || legacyConfirmed) {
+    await window.api.startMonitor(settings.connectionMode || 'https', true);
+  } else {
+    const { mode, dontAsk } = await showConnectionModeDialog(settings.connectionMode || 'https');
+    await window.api.startMonitor(mode, dontAsk);
+  }
 })();
 
 function showConnectionModeDialog(currentMode) {
@@ -736,13 +742,12 @@ function showConnectionModeDialog(currentMode) {
 
     box.querySelector('#connModeOk').addEventListener('click', () => {
       const mode = box.querySelector('input[name="connMode"]:checked')?.value || 'https';
-      const dontAsk = box.querySelector('#connModeDontAsk')?.checked;
-      try { localStorage.setItem('rp_connModeConfirmed', dontAsk ? '1' : '0'); } catch {}
+      const dontAsk = !!box.querySelector('#connModeDontAsk')?.checked;
       overlay.remove();
-      settings = { ...settings, connectionMode: mode };
+      settings = { ...settings, connectionMode: mode, connectionModeConfirmed: dontAsk };
       const cmEl = $('#connectionMode');
       if (cmEl) cmEl.value = mode;
-      resolve(mode);
+      resolve({ mode, dontAsk });
     });
     // Kullanıcı "Bağlan"a tıklayana kadar bekle — monitoring başlamaz.
   });
@@ -1670,9 +1675,21 @@ async function loadRelayNetworkStats() {
   for (const srv of servers) updateCardFlags(srv.name);
 }
 
-async function refreshRelayFingerprintCache() {
+// Fingerprint once yalnizca acilista okunuyordu (2026-10-03): sonradan eklenen
+// ya da acilista ulasilamayan relay, uygulama yeniden acilana kadar kartta "—"
+// kaliyor, ag verisi (consensus weight) de hic gelmiyordu. Eksik olanlar artik
+// kaydedince hemen, sonra FINGERPRINT_RETRY_MS'de bir yeniden okunuyor.
+const FINGERPRINT_RETRY_MS = 10 * 60 * 1000;
+let fingerprintFetchRunning = false;
+let fingerprintFetchAgain = false;
+
+async function refreshRelayFingerprintCache(names) {
+  // Okuma her relay'e SSH ile gidiyor; ust uste binmesin. Calisirken gelen
+  // istek kaybolmasin diye bitince eksikler icin bir tur daha atilir.
+  if (fingerprintFetchRunning) { fingerprintFetchAgain = true; return; }
+  fingerprintFetchRunning = true;
   try {
-    const r = await window.api.fetchRelayFingerprints();
+    const r = await window.api.fetchRelayFingerprints(names);
     if (!r.ok) return;
     for (const row of (r.rows || [])) {
       if (row && row.ok && row.fingerprint) relayFingerprintCache.set(row.name, row.fingerprint);
@@ -1680,7 +1697,19 @@ async function refreshRelayFingerprintCache() {
     for (const srv of servers) updateCardFlags(srv.name);
     // Fingerprint'ler doldu — ağ verisini güncelle
     loadRelayNetworkStats();
-  } catch {}
+  } catch {
+  } finally {
+    fingerprintFetchRunning = false;
+    if (fingerprintFetchAgain) {
+      fingerprintFetchAgain = false;
+      refreshMissingRelayFingerprints();
+    }
+  }
+}
+
+function refreshMissingRelayFingerprints() {
+  const missing = servers.map((s) => s.name).filter((n) => n && !relayFingerprintCache.has(n));
+  if (missing.length) return refreshRelayFingerprintCache(missing);
 }
 
 function renderBandwidthView() {
@@ -2207,6 +2236,7 @@ $('#saveServers').addEventListener('click', async () => {
   renderCards();
   populateLogServerSelect();
   flash($('#saveServers'), 'Saved');
+  refreshMissingRelayFingerprints();
 });
 $('#installAgentAll').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
