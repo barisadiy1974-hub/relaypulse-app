@@ -87,6 +87,12 @@ input, textarea, select, .err, .logview, pre {
 #networkModeBadge   { background: linear-gradient(90deg,rgba(47,125,246,0.18),rgba(49,177,87,0.12)); border-color: rgba(47,125,246,0.35); color: #60a5fa; }
 #autoFixModeBadge   { background: linear-gradient(90deg,rgba(167,139,250,0.15),rgba(139,92,246,0.08)); border-color: rgba(167,139,250,0.3); color: #a78bfa; }
 #lastHourBadge      { background: linear-gradient(90deg,rgba(52,211,153,0.12),rgba(16,185,129,0.07)); border-color: rgba(52,211,153,0.28); color: #34d399; }
+#tokenPriceBadge    { background: linear-gradient(90deg,rgba(251,191,36,0.15),rgba(245,166,35,0.08)); border-color: rgba(251,191,36,0.35); color: #fbbf24; cursor: pointer; }
+#tokenPriceBadge .chg.up   { color: #34d399; }
+#tokenPriceBadge .chg.down { color: #f87171; }
+[data-theme="light"] #tokenPriceBadge { color: #b45309; border-color: rgba(180,83,9,0.35); }
+[data-theme="light"] #tokenPriceBadge .chg.up   { color: #047857; }
+[data-theme="light"] #tokenPriceBadge .chg.down { color: #b91c1c; }
 #languageModeBadge  { background: transparent; color: var(--muted); border-color: transparent; }
 #appVersionBadge    { background: transparent; color: var(--muted); border-color: transparent; }
 .top-badge.subtle   { background: transparent; color: var(--muted); border-color: transparent; }

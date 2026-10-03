@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('api', {
   setFamilyExtras: (list) => ipcRenderer.invoke('family:extras:set', list),
   fetchRelayFlags: () => ipcRenderer.invoke('relay:flags'),
   fetchNetworkStats: () => ipcRenderer.invoke('network:stats'),
+  fetchTokenPrice: (currency) => ipcRenderer.invoke('token:price', currency),
+  getTokenCurrencies: () => ipcRenderer.invoke('token:currencies'),
   openNetworkMap: (fleet) => ipcRenderer.invoke('networkMap:open', fleet),
   testAlarm: () => ipcRenderer.invoke('alarm:test'),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),

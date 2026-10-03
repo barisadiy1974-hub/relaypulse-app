@@ -2187,6 +2187,7 @@ ipcMain.handle('settings:get', () => {
     ramWarnPct: Math.max(70, Math.min(99, Number(cfg.ramWarnPct) || 90)),
     connectionMode: cfg.connectionMode || 'https',
     connectionModeConfirmed: !!cfg.connectionModeConfirmed,
+    tokenPriceCurrency: TOKEN_PRICE_CURRENCIES.includes(cfg.tokenPriceCurrency) ? cfg.tokenPriceCurrency : 'usd',
     sshRetryCount: Math.max(1, Math.min(3, Number(cfg.sshRetryCount) || 2)),
     sshTimeoutMs: Math.max(0, Math.min(60000, Number(cfg.sshTimeoutMs) || 0)),
     offlineAfter: Math.max(1, Math.min(5, Number(cfg.offlineAfter) || 2)),
@@ -2321,7 +2322,47 @@ ipcMain.handle('iap:restore', async () => {
 });
 // Only the user's own configured relay hosts: the single reason the app opens
 // a browser is the relay's own web page. Everything else is blocked.
-const EXTERNAL_OPEN_ALLOWED_HOSTS = new Set();
+// ANYONE fiyat rozeti (2026-10-04). Eski rozetin kodu bir temizlikte gitmis,
+// yalnizca bos <span> kalmisti. Fiyat CoinGecko'dan (coin id: airtor-protocol),
+// para birimi Ayarlar > General'dan. Ucretsiz API dakikada birkac istegi kaldirir;
+// ayni para birimi icin 5 dakikadan sik sorulmaz, hata olursa son fiyat doner.
+const ANYONE_COINGECKO_ID = 'airtor-protocol';
+const TOKEN_PRICE_TTL_MS = 5 * 60 * 1000;
+const TOKEN_PRICE_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'cny', 'krw', 'inr', 'try', 'rub', 'brl', 'cad', 'aud',
+  'chf', 'sek', 'nok', 'dkk', 'pln', 'czk', 'huf', 'mxn', 'zar', 'sgd', 'hkd', 'nzd', 'idr', 'thb', 'php', 'vnd',
+  'uah', 'ils', 'aed', 'sar', 'twd', 'myr', 'ars', 'clp', 'ngn'];
+const tokenPriceCache = new Map();
+function fetchAnyonePrice(currency) {
+  const cur = TOKEN_PRICE_CURRENCIES.includes(currency) ? currency : 'usd';
+  const hit = tokenPriceCache.get(cur);
+  if (hit && Date.now() - hit.fetchedAt < TOKEN_PRICE_TTL_MS) return Promise.resolve(hit);
+  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ANYONE_COINGECKO_ID}&vs_currencies=${cur}&include_24hr_change=true`;
+  return new Promise((resolve) => {
+    const fail = (error) => resolve(hit ? { ...hit, stale: true } : { ok: false, currency: cur, error });
+    const req = https.get(url, { timeout: 10000, headers: { Accept: 'application/json', 'User-Agent': 'RelayPulse' } }, (res) => {
+      let body = '';
+      res.on('data', (d) => { body += d; });
+      res.on('end', () => {
+        if (res.statusCode !== 200) return fail(`CoinGecko HTTP ${res.statusCode}`);
+        try {
+          const row = JSON.parse(body)[ANYONE_COINGECKO_ID] || {};
+          const price = Number(row[cur]);
+          if (!Number.isFinite(price)) return fail('no price in response');
+          const change = Number(row[`${cur}_24h_change`]);
+          const result = { ok: true, currency: cur, price, change24h: Number.isFinite(change) ? change : null, fetchedAt: Date.now() };
+          tokenPriceCache.set(cur, result);
+          resolve(result);
+        } catch (e) { fail(e.message); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', (e) => fail(e.message));
+  });
+}
+ipcMain.handle('token:price', (_e, currency) => fetchAnyonePrice(String(currency || '').toLowerCase()));
+ipcMain.handle('token:currencies', () => TOKEN_PRICE_CURRENCIES);
+
+const EXTERNAL_OPEN_ALLOWED_HOSTS = new Set(['www.coingecko.com']);
 ipcMain.handle('external:open', async (_e, url) => {
   const safe = String(url || '').trim();
   if (!/^https?:\/\//i.test(safe)) return { ok: false, error: 'Invalid URL' };

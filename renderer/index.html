@@ -16,6 +16,7 @@
     <div class="actions">
       <span id="demoBadge" class="top-badge" style="display:none;background:#7c6af7;color:#fff">Demo data — not a real fleet</span>
       <span id="networkModeBadge" class="top-badge">Network: Anyone</span>
+      <span id="tokenPriceBadge" class="top-badge" role="button" tabindex="0" style="display:none">ANYONE —</span>
       <span id="languageModeBadge" class="top-badge subtle">EN</span>
       <span id="autoFixModeBadge" class="top-badge subtle">Auto-Fix: Off</span>
       <span id="lastHourBadge" class="top-badge subtle">Last 1h: —</span>
@@ -349,6 +350,10 @@
             </select>
           </label>
           <p class="hint">Stored as the default preference. Shown in the top bar and used as the base mode for new features.</p>
+          <label>ANYONE price currency
+            <select id="tokenPriceCurrency"><option value="usd">USD</option></select>
+          </label>
+          <p class="hint">Currency of the ANYONE price in the top bar. Prices come from CoinGecko and refresh every 5 minutes.</p>
 
           <h3 id="settingsZoomTitle" style="margin-top:24px">Appearance / Zoom</h3>
           <label><span id="zoomRowLabel">Zoom level</span>
@@ -374,7 +379,7 @@
           <p class="hint">HTTPS: used if an agent is installed on the server. SSH: works safely on any device, no token issues. Once saved, all relays connect using this mode.</p>
 
           <h3 id="settingsPollingTitle">Polling</h3>
-          <label><span id="pollMsLabel">Interval (ms)</span> <input id="pollMs" type="number" min="120000" step="10000" value="120000"></label>
+          <label><span id="pollMsLabel">Interval (seconds)</span> <input id="pollMs" type="number" min="30" step="10" value="120"></label>
           <label><span id="cfgLogLinesLabel">Default log lines</span> <input id="cfgLogLines" type="number" min="50" step="50" value="200"></label>
           <label><span id="sshRetryLabel">Retry count</span> <input id="sshRetryCount" type="number" min="1" max="3" step="1" value="2"></label>
           <label><span id="sshTimeoutLabel">Timeout (seconds, 0 = auto)</span> <input id="sshTimeoutSec" type="number" min="0" max="60" step="1" value="0"></label>
@@ -559,7 +564,7 @@
           <h4>Settings › Monitoring</h4>
           <dl class="help-list">
             <dt>Connection type</dt><dd><i>SSH</i> works on every server with nothing installed. <i>HTTPS Agent</i> is faster and lighter on large fleets, but needs the agent on each server. Applies to all servers.</dd>
-            <dt>Interval (ms)</dt><dd>How often each server is read, in milliseconds: 120000 is two minutes, 30000 (30 seconds) is the lowest.</dd>
+            <dt>Interval (seconds)</dt><dd>How often each server is read: 120 is two minutes, 30 is the lowest.</dd>
             <dt>Default log lines</dt><dd>How many log lines the log views load.</dd>
             <dt>Retry count</dt><dd>How many times one reading retries the SSH connection (1–3).</dd>
             <dt>Timeout</dt><dd>The longest one reading may take, in seconds. 0 lets RelayPulse choose.</dd>

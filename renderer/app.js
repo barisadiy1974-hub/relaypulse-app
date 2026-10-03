@@ -287,7 +287,7 @@ function applyLanguage(lang) {
   setText('#settingsPollingTitle', t('polling'));
   {
     const en = true;
-    setText('#pollMsLabel', 'Interval (ms)');
+    setText('#pollMsLabel', 'Interval (seconds)');
     setText('#cfgLogLinesLabel', 'Default log lines');
     setText('#sshRetryLabel', 'Retry count');
     setText('#sshTimeoutLabel', 'Timeout (seconds, 0 = auto)');
@@ -651,7 +651,8 @@ $('#hideBtn').addEventListener('click', () => window.api.hideWindow());
   document.body.classList.toggle('is-mas', appIsMas);
   applyLanguage(settings.languageMode || 'en');
   applyTheme(settings.themeMode || 'light');
-  $('#pollMs').value = settings.pollMs;
+  // Alan saniye; config milisaniye tutmaya devam ediyor (iPhone/Android ayni degeri okuyor).
+  $('#pollMs').value = Math.round((Number(settings.pollMs) || 120000) / 1000);
   $('#cfgLogLines').value = settings.logLines;
   if ($('#sshRetryCount')) $('#sshRetryCount').value = Math.max(1, Math.min(3, Number(settings.sshRetryCount) || 2));
   if ($('#sshTimeoutSec')) $('#sshTimeoutSec').value = Math.max(0, Math.min(60, Math.round((Number(settings.sshTimeoutMs) || 0) / 1000)));
@@ -677,6 +678,7 @@ $('#hideBtn').addEventListener('click', () => window.api.hideWindow());
   setInterval(refreshMissingRelayFingerprints, FINGERPRINT_RETRY_MS);
   refreshNetworkStats();
   networkStatsTimer = setInterval(refreshNetworkStats, 60000);
+  initTokenPriceBadge();
 
   // Önce kullanıcı bağlantı modunu seçsin, sonra monitoring başlasın.
   // Bir kez "bir daha sorma" dendiyse dialog atlanır — mod Ayarlar > İzleme'den
@@ -693,6 +695,65 @@ $('#hideBtn').addEventListener('click', () => window.api.hideWindow());
     await window.api.startMonitor(mode, dontAsk);
   }
 })();
+
+// --- ANYONE price badge (top bar) ---
+// The main process fetches from CoinGecko and caches for 5 minutes; a failed
+// fetch returns the last price (stale) or nothing, and the badge then hides.
+const TOKEN_PRICE_REFRESH_MS = 5 * 60 * 1000;
+let tokenPriceTimer = null;
+
+function formatTokenPrice(price, currency) {
+  const digits = price >= 100 ? 0 : price >= 1 ? 2 : 4;
+  try {
+    // en-US + 'symbol': "$0.2377", "€0.2112", "CA$0.33", "NOK 2.29" — the UI is
+    // English-only, and the system locale gave "0,2377 USD" on a Norwegian PC.
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase(),
+      currencyDisplay: 'symbol', minimumFractionDigits: digits, maximumFractionDigits: digits }).format(price);
+  } catch {
+    return `${price.toFixed(digits)} ${currency.toUpperCase()}`;
+  }
+}
+
+async function refreshTokenPrice() {
+  const badge = $('#tokenPriceBadge');
+  if (!badge) return;
+  let r;
+  try { r = await window.api.fetchTokenPrice(settings.tokenPriceCurrency || 'usd'); } catch { r = null; }
+  if (!r || !r.ok) { badge.style.display = 'none'; return; }
+  const chg = Number.isFinite(r.change24h) ? r.change24h : null;
+  const chgHtml = chg == null ? ''
+    : ` <span class="chg ${chg >= 0 ? 'up' : 'down'}">${chg >= 0 ? '▲' : '▼'}${Math.abs(chg).toFixed(2)}%</span>`;
+  badge.innerHTML = `ANYONE ${escapeHtml(formatTokenPrice(r.price, r.currency))}${chgHtml}`;
+  const age = Math.max(0, Math.round((Date.now() - r.fetchedAt) / 60000));
+  badge.title = `ANYONE Protocol · CoinGecko · updated ${age ? age + ' min ago' : 'just now'}`
+    + `${r.stale ? ' (could not refresh)' : ''}\nClick to open the chart`;
+  badge.style.display = '';
+}
+
+async function initTokenPriceBadge() {
+  const sel = $('#tokenPriceCurrency');
+  if (sel) {
+    try {
+      const list = await window.api.getTokenCurrencies();
+      if (Array.isArray(list) && list.length) {
+        sel.innerHTML = list.map((c) => `<option value="${c}">${c.toUpperCase()}</option>`).join('');
+      }
+    } catch {}
+    sel.value = settings.tokenPriceCurrency || 'usd';
+    sel.addEventListener('change', async () => {
+      settings = { ...settings, tokenPriceCurrency: sel.value };
+      try { await window.api.saveSettings(settings); } catch {}
+      refreshTokenPrice();
+    });
+  }
+  const badge = $('#tokenPriceBadge');
+  const openChart = () => window.api.openExternal('https://www.coingecko.com/en/coins/airtor-protocol');
+  badge?.addEventListener('click', openChart);
+  badge?.addEventListener('keydown', (e) => { if (e.key === 'Enter') openChart(); });
+  refreshTokenPrice();
+  clearInterval(tokenPriceTimer);
+  tokenPriceTimer = setInterval(refreshTokenPrice, TOKEN_PRICE_REFRESH_MS);
+}
 
 function showConnectionModeDialog(currentMode) {
   return new Promise((resolve) => {
@@ -2310,7 +2371,9 @@ $('#installAgentAll').addEventListener('click', async (e) => {
   else alert(`HTTPS agent installed on all servers. (${r.okCount} total)`);
 });
 $('#saveSettings').addEventListener('click', async () => {
-  const pollMs = Math.max(30000, Number($('#pollMs').value) || 30000);
+  // Alan eskiden milisaniyeydi ("60000"); oyle yazan biri 16 saatlik aralik almasin.
+  const pollRaw = Number($('#pollMs').value) || 120;
+  const pollMs = Math.max(30000, pollRaw >= 30000 ? pollRaw : pollRaw * 1000);
   const logLines = Math.max(50, Number($('#cfgLogLines').value) || 200);
   const defaultNetworkMode = $('#defaultNetworkMode').value === 'direct' ? 'direct' : 'anyone';
   const languageMode = 'en';
