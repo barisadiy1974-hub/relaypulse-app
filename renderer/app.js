@@ -1849,9 +1849,18 @@ let selectedSettingsServerName = '';
 function renderSelectedRelayDetail() {
   const pane = $('#selectedRelayDetail');
   if (!pane) return;
-  const srv = servers.find(s => s.name === selectedSettingsServerName) || servers[0];
+  // Secim yoksa ilk relay'e dusmuyoruz (2026-10-04): form hep dolu bir relay
+  // gosteriyordu, "×" bile ayni relay'i geri getiriyordu. Yeni relay eklemek
+  // isteyen kullanici bilgileri buraya yazip "Save Relay"e basinca mevcut
+  // relay'in ustune yaziyordu (Linux'ta ilk kurulumda boyle oldu).
+  const srv = servers.find(s => s.name === selectedSettingsServerName);
   if (!srv) {
-    pane.innerHTML = '<div class="relay-edit-empty">Add a server to configure its connection.</div>';
+    selectedSettingsServerName = '';
+    pane.innerHTML = `<div class="relay-edit-empty">${servers.length
+      ? 'Pick a relay in the list to edit it, or add a new one.'
+      : 'Add a server to configure its connection.'}
+      <div class="relay-detail-actions"><button class="detail-add primary" type="button">+ Add Server</button></div></div>`;
+    pane.querySelector('.detail-add')?.addEventListener('click', () => $('#addServer')?.click());
     return;
   }
   selectedSettingsServerName = srv.name;
@@ -1859,8 +1868,8 @@ function renderSelectedRelayDetail() {
   const state = snap ? getEffectiveRelayState(snap) : 'waiting';
   const stateText = state === 'online' ? 'Online' : state === 'stale' ? 'Warning' : state === 'offline' ? 'Offline' : 'Waiting';
   pane.innerHTML = `
-    <div class="relay-edit-title"><div><span class="state-dot ${state}"></span>${escapeHtml(srv.name)}</div><button class="detail-close" title="Clear selection">×</button></div>
-    <p class="hint">Edit the selected relay. Save Connections writes these values to RelayPulse.</p>
+    <div class="relay-edit-title"><div><span class="state-dot ${state}"></span>Editing: ${escapeHtml(srv.name)}</div><button class="detail-close" title="Close">×</button></div>
+    <p class="hint">These fields change <b>${escapeHtml(srv.name)}</b>. To add another relay, use <b>+ Add Server</b> instead.</p>
     <div class="relay-detail-status ${state}"><span>${stateText}</span><small>${snap?.ts ? 'Last check ' + fmtSince(snap.ts) : 'Awaiting first check'}</small></div>
     <label>Relay name<input data-detail-f="name" value="${escAttr(srv.name || '')}" autocomplete="off"></label>
     <label>Host or SSH Alias<input data-detail-f="hostAlias" value="${escAttr(srv.host || srv.sshAlias || '')}" placeholder="relay.example.com"></label>
@@ -1943,7 +1952,7 @@ function renderMonitoringPreview() {
 function renderSettings() {
   const tbody = $('#serversTable tbody');
   tbody.innerHTML = '';
-  if (!servers.some(s => s.name === selectedSettingsServerName)) selectedSettingsServerName = servers[0]?.name || '';
+  if (!servers.some(s => s.name === selectedSettingsServerName)) selectedSettingsServerName = '';
   for (const s of servers) {
     const tr = document.createElement('tr');
     tr.dataset.serverName = s.name;
